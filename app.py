@@ -223,20 +223,10 @@ def init_db():
                 "INSERT INTO branches(owner,business_type,name,district,created_at) VALUES (?,?,?,?,?)",
                 ("admin", "Incubators Business", name, dist, datetime.now().isoformat()),
             )
-        for p in [
-            ("Incubator 300 Eggs", "Incubators", "INC300", 1200000, 1450000),
-            ("Incubator 528 Eggs", "Incubators", "INC528", 1800000, 2200000),
-            ("Heater Element", "Accessories", "HEAT01", 40000, 65000),
-            ("Day Old Chicks", "Chicks", "CHICK01", 1500, 2500),
-        ]:
-            exec_sql(
-                "INSERT INTO products(name,category,unit,quantity,buy_price,sell_price,business_type,owner,barcode) VALUES (?,?,?,?,?,?,?,?,?)",
-                (p[0], p[1], "Pcs", 0, p[3], p[4], "Incubators Business", "admin", p[2]),
-            )
     else:
         admin_id, current_admin_name = primary_admin
         if current_admin_name != SECURE_ADMIN_USER:
-            cur.execute("SELECT id FROM users WHERE username=?", (SECURE_ADMIN_USER,))
+            exec_sql("SELECT id FROM users WHERE username=?", (SECURE_ADMIN_USER,))
             if cur.fetchone():
                 raise RuntimeError("ADMIN_USERNAME is already used by another account.")
             exec_sql("UPDATE users SET username=? WHERE id=?", (SECURE_ADMIN_USER, admin_id))
@@ -846,39 +836,121 @@ def stock_manage():
                 return redirect("/stock/manage")
             try:
                 bid = int(request.form["branch_id"])
-                pid = int(request.form["product_id"])
                 qty = int(request.form["qty"])
+                if action == "add":
+                    product_name = request.form.get("product_name", "").strip()
+                    category = request.form.get("category", "").strip()[:100] or "General"
+                    unit = request.form.get("unit", "").strip()[:30] or "Pcs"
+                    buy_price = float(request.form.get("buy_price") or 0)
+                    sell_price = float(request.form.get("sell_price") or 0)
+                else:
+                    pid = int(request.form["product_id"])
             except (KeyError, TypeError, ValueError):
-                flash("Choose a branch and product, and enter a valid stock quantity", "danger")
+                flash("Choose a branch and enter valid product, price, and stock details", "danger")
+                return redirect("/stock/manage")
+            if action == "add" and (not product_name or len(product_name) > 150):
+                flash("Enter a product name of 1 to 150 characters", "danger")
+                return redirect("/stock/manage")
+            if action == "add" and (buy_price < 0 or sell_price < 0):
+                flash("Product prices must be zero or greater", "danger")
                 return redirect("/stock/manage")
             if qty < 0 or (action == "add" and qty == 0):
                 flash("Stock quantity must be positive when adding, or zero or greater when setting stock", "danger")
                 return redirect("/stock/manage")
             valid_branch, _ = run_query("SELECT id,name FROM branches WHERE id=? AND owner=?", (bid, owner), fetch=True)
-            valid_product, _ = run_query("SELECT id,name FROM products WHERE id=? AND owner=?", (pid, owner), fetch=True)
-            if not valid_branch or not valid_product:
-                flash("Choose a valid branch and product", "danger")
+            if not valid_branch:
+                flash("Choose a valid branch", "danger")
                 return redirect("/stock/manage")
 
-            rows, _ = run_query(
-                "SELECT qty FROM branch_stock WHERE owner=? AND branch_id=? AND product_id=?",
-                (owner, bid, pid),
-                fetch=True
-            )
-            previous_qty = rows[0][0] if rows else None
-            current_qty = (previous_qty or 0) + qty if action == "add" else qty
-            if rows:
-                query = "UPDATE branch_stock SET qty=qty+? WHERE owner=? AND branch_id=? AND product_id=?" if action == "add" else "UPDATE branch_stock SET qty=? WHERE owner=? AND branch_id=? AND product_id=?"
-                value = qty
-                run_query(query, (value, owner, bid, pid), fetch=False)
+            if action == "add":
+                db = get_db()
+                cursor = db.cursor()
+                db.commit()
+                cursor.execute("BEGIN" if USE_POSTGRES else "BEGIN IMMEDIATE")
+
+                def execute_stock_query(sql, params=()):
+                    cursor.execute(sql.replace("?", "%s") if USE_POSTGRES else sql, params)
+
+                try:
+                    product_sql = (
+                        "SELECT id FROM products WHERE owner=? AND LOWER(TRIM(name))=LOWER(TRIM(?))"
+                        + (" FOR UPDATE" if USE_POSTGRES else "")
+                    )
+                    execute_stock_query(product_sql, (owner, product_name))
+                    product_row = cursor.fetchone()
+                    if product_row:
+                        pid = product_row[0]
+                    else:
+                        insert_product_sql = (
+                            "INSERT INTO products(name,category,unit,quantity,buy_price,sell_price,business_type,owner,barcode) "
+                            "VALUES (?,?,?,?,?,?,?,?,?)"
+                        )
+                        product_params = (
+                            product_name, category, unit, 0, buy_price, sell_price,
+                            bt, owner, request.form.get("barcode", "").strip() or None
+                        )
+                        if USE_POSTGRES:
+                            execute_stock_query(insert_product_sql + " RETURNING id", product_params)
+                            pid = cursor.fetchone()[0]
+                        else:
+                            execute_stock_query(insert_product_sql, product_params)
+                            pid = cursor.lastrowid
+
+                    stock_sql = (
+                        "SELECT qty FROM branch_stock WHERE owner=? AND branch_id=? AND product_id=?"
+                        + (" FOR UPDATE" if USE_POSTGRES else "")
+                    )
+                    execute_stock_query(stock_sql, (owner, bid, pid))
+                    stock_row = cursor.fetchone()
+                    previous_qty = stock_row[0] if stock_row else None
+                    current_qty = (previous_qty or 0) + qty
+                    if stock_row:
+                        execute_stock_query(
+                            "UPDATE branch_stock SET qty=qty+? WHERE owner=? AND branch_id=? AND product_id=?",
+                            (qty, owner, bid, pid)
+                        )
+                    else:
+                        execute_stock_query(
+                            "INSERT INTO branch_stock(owner,business_type,branch_id,product_id,qty) VALUES (?,?,?,?,?)",
+                            (owner, bt, bid, pid, qty)
+                        )
+                    db.commit()
+                except Exception:
+                    db.rollback()
+                    raise
+
+                product_display_name = product_name
             else:
-                run_query(
-                    "INSERT INTO branch_stock(owner,business_type,branch_id,product_id,qty) VALUES (?,?,?,?,?)",
-                    (owner, bt, bid, pid, qty),
-                    fetch=False
+                valid_product, _ = run_query(
+                    "SELECT id,name FROM products WHERE id=? AND owner=?",
+                    (pid, owner),
+                    fetch=True
                 )
+                if not valid_product:
+                    flash("Choose a valid product", "danger")
+                    return redirect("/stock/manage")
+                rows, _ = run_query(
+                    "SELECT qty FROM branch_stock WHERE owner=? AND branch_id=? AND product_id=?",
+                    (owner, bid, pid),
+                    fetch=True
+                )
+                previous_qty = rows[0][0] if rows else None
+                current_qty = qty
+                if rows:
+                    run_query(
+                        "UPDATE branch_stock SET qty=? WHERE owner=? AND branch_id=? AND product_id=?",
+                        (qty, owner, bid, pid),
+                        fetch=False
+                    )
+                else:
+                    run_query(
+                        "INSERT INTO branch_stock(owner,business_type,branch_id,product_id,qty) VALUES (?,?,?,?,?)",
+                        (owner, bt, bid, pid, qty),
+                        fetch=False
+                    )
+                product_display_name = valid_product[0][1]
             notify_low_stock_if_crossed(
-                owner, valid_branch[0][1], valid_product[0][1], previous_qty, current_qty
+                owner, valid_branch[0][1], product_display_name, previous_qty, current_qty
             )
             flash(f"Stock {'added' if action == 'add' else 'updated'} to {qty if action == 'set' else 'increase by ' + str(qty)}", "success")
 
@@ -1174,10 +1246,14 @@ def point_of_sale():
         cursor = db.cursor()
         db.commit()
         cursor.execute("BEGIN" if USE_POSTGRES else "BEGIN IMMEDIATE")
+
+        def execute_sale_query(sql, params=()):
+            cursor.execute(sql.replace("?", "%s") if USE_POSTGRES else sql, params)
+
         low_stock_alerts = []
 
         try:
-            cursor.execute(
+            execute_sale_query(
                 "SELECT id,name FROM branches WHERE id=? AND owner=?",
                 (branch_id, owner)
             )
@@ -1188,7 +1264,7 @@ def point_of_sale():
             cart_lines = []
             for product_id, quantity in quantities.items():
                 lock_clause = " FOR UPDATE" if USE_POSTGRES else ""
-                cursor.execute(
+                execute_sale_query(
                     "SELECT name,buy_price,sell_price FROM products WHERE id=? AND owner=?" + lock_clause,
                     (product_id, owner)
                 )
@@ -1196,7 +1272,7 @@ def point_of_sale():
                 if not product:
                     raise ValueError("A product in the cart was not found")
 
-                cursor.execute(
+                execute_sale_query(
                     "SELECT qty FROM branch_stock WHERE owner=? AND branch_id=? AND product_id=?" + lock_clause,
                     (owner, branch_id, product_id)
                 )
@@ -1220,21 +1296,21 @@ def point_of_sale():
             )
 
             if USE_POSTGRES:
-                cursor.execute(insert_sql.replace("?", "%s") + " RETURNING id", insert_params)
+                execute_sale_query(insert_sql + " RETURNING id", insert_params)
                 receipt_id = cursor.fetchone()[0]
             else:
-                cursor.execute(insert_sql, insert_params)
+                execute_sale_query(insert_sql, insert_params)
                 receipt_id = cursor.lastrowid
 
             for product_id, quantity, name, buy_price, sell_price, available in cart_lines:
                 total = quantity * sell_price
                 profit = quantity * (sell_price - buy_price)
-                cursor.execute(
+                execute_sale_query(
                     "INSERT INTO sales(product_id,product_name,quantity,total,profit,date,business_type,owner,order_id,branch_id) "
                     "VALUES (?,?,?,?,?,?,?,?,?,?)",
                     (product_id, name, quantity, total, profit, datetime.now().isoformat(), bt, owner, receipt_id, branch_id)
                 )
-                cursor.execute(
+                execute_sale_query(
                     "UPDATE branch_stock SET qty=qty-? WHERE owner=? AND branch_id=? AND product_id=? AND qty>=?",
                     (quantity, owner, branch_id, product_id, quantity)
                 )
