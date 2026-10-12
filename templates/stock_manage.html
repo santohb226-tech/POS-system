@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Stock Manage</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin:0; background:radial-gradient(ellipse at top left, rgba(37,99,235,.2), transparent 42%), linear-gradient(135deg,#0b1220 0%,#10233a 55%,#0f2f3b 100%); background-attachment:fixed; min-height:100vh; color:#e5e7eb; }
+    .topbar { padding:14px 18px; background:#0B3D6B; display:flex; align-items:center; justify-content:space-between; gap:12px; }
+    .brand { font-weight:800; }
+    .nav { display:flex; gap:14px; flex-wrap:wrap; justify-content:flex-end; }
+    a { color:#93c5fd; text-decoration:none; }
+    a:hover { text-decoration:underline; }
+    .btn { display:inline-block; padding:10px 12px; border-radius:10px; background:#2C7BE5; color:#fff; font-weight:700; }
+    .btn-secondary { background:#5F0F40; }
+    .wrap { padding:14px; max-width:1200px; margin:0 auto; }
+    .grid { display:grid; grid-template-columns: 1fr 1fr; gap:14px; }
+    @media (max-width: 900px){ .grid { grid-template-columns: 1fr; } }
+    .card { background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); border-radius:14px; padding:14px; }
+    h2 { margin:0 0 12px; font-size:16px; color:#fff; }
+    .field { margin:10px 0; }
+    label { display:block; font-size:13px; margin-bottom:6px; color:#dbeafe; }
+    select, input { width:100%; padding:10px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.08); color:#fff; }
+    select, select option { background-color:#fff; color:#111; }
+    button { width:100%; padding:12px; border:none; border-radius:10px; background:#2C7BE5; color:#fff; font-weight:800; cursor:pointer; }
+    .table { width:100%; border-collapse:collapse; margin-top:10px; }
+    .table th, .table td { padding:10px 8px; border-bottom:1px solid rgba(255,255,255,0.12); font-size:13px; }
+    .table th { text-align:left; color:#c7d2fe; }
+    .flash { padding:10px 12px; border-radius:10px; margin:10px 0; font-size:14px; }
+    .danger { background:#6B2737; border:1px solid rgba(255,255,255,0.15); }
+    .success { background:#1B4332; border:1px solid rgba(255,255,255,0.15); }
+    .subnote { opacity:0.85; font-size:12px; margin-top:6px; }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="brand">Stock Management</div>
+    <div class="nav">
+      <a class="btn" href="/dashboard">Dashboard</a>
+      <a class="btn btn-secondary" href="/pos">POS</a>
+      <form method="post" action="/logout" class="d-inline"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="btn btn-secondary" type="submit">Logout</button></form>
+    </div>
+  </div>
+
+  <div class="wrap">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="flash {{ 'danger' if category=='danger' else 'success' }}">{{ message }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    <div class="grid">
+      {% if is_owner %}
+      <div class="card">
+        <h2>Add Stock</h2>
+        <form method="POST" action="/stock/manage">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="action" value="add">
+
+          <div class="field">
+            <label>Branch</label>
+            {% if is_admin %}
+              <select name="branch_id" required>
+                {% for b in branches %}
+                  <option value="{{ b[0] }}">{{ b[2] }} ({{ b[3] }})</option>
+                {% endfor %}
+              </select>
+            {% else %}
+              <select name="branch_id" disabled>
+                <option value="{{ my_branch }}">Your Branch (ID {{ my_branch }})</option>
+              </select>
+              <input type="hidden" name="branch_id" value="{{ my_branch }}">
+            {% endif %}
+          </div>
+          {% else %}
+          <div class="card">
+            <h2>Stock Editing</h2>
+            <div class="subnote">Only the owner can add or edit stock quantities. You can view available stock here.</div>
+          </div>
+          {% endif %}
+
+          <div class="field">
+            <label>Product</label>
+            <select name="product_id" required>
+              {% for p in products %}
+                <option value="{{ p[0] }}">{{ p[1] }} - {{ p[4] }} (Sell: {{ p[6] if p|length>6 else '' }})</option>
+              {% endfor %}
+            </select>
+            <div class="subnote">Choose product to increase quantity.</div>
+          </div>
+
+          <div class="field">
+            <label>Quantity</label>
+            <input name="qty" type="number" min="1" required>
+          </div>
+
+          <button type="submit">Add</button>
+        </form>
+      </div>
+
+      <div class="card">
+        <h2>Transfer Stock (Owner Only)</h2>
+        <form method="POST" action="/stock/manage">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="action" value="transfer">
+
+          <div class="field">
+            <label>From Branch</label>
+            <select name="from_branch" {% if not is_owner %}disabled{% endif %} required>
+              {% for b in branches %}
+                <option value="{{ b[0] }}">{{ b[2] }} ({{ b[3] }})</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="field">
+            <label>To Branch</label>
+            <select name="to_branch" {% if not is_owner %}disabled{% endif %} required>
+              {% for b in branches %}
+                <option value="{{ b[0] }}">{{ b[2] }} ({{ b[3] }})</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="field">
+            <label>Product</label>
+            <select name="product_id" {% if not is_owner %}disabled{% endif %} required>
+              {% for p in products %}
+                <option value="{{ p[0] }}">{{ p[1] }} (Barcode: {{ p[7] if p|length>7 else '' }})</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="field">
+            <label>Quantity</label>
+            <input name="qty" type="number" min="1" {% if not is_owner %}disabled{% endif %} required>
+          </div>
+
+          <button type="submit" {% if not is_owner %}disabled style="opacity:0.6; cursor:not-allowed;"{% endif %}>Transfer</button>
+          {% if not is_owner %}
+            <div class="subnote">Only the owner can transfer stock between branches.</div>
+          {% endif %}
+        </form>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:14px;">
+      <h2>Current Stock</h2>
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Branch</th>
+            <th>Product</th>
+            <th>Barcode</th>
+            <th>Qty</th>
+            {% if is_owner %}<th>Set Quantity</th>{% endif %}
+          </tr>
+        </thead>
+        <tbody>
+          {% if stock %}
+            {% for s in stock %}
+              <tr>
+                <td>{{ s[0] }}</td>
+                <td>{{ s[1] }}</td>
+                <td>{{ s[5] if s|length>5 else '' }}</td>
+                <td>{{ s[2] }}</td>
+                {% if is_owner %}
+                <td>
+                  <form method="POST" action="/stock/manage" class="d-flex gap-2">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <input type="hidden" name="action" value="set">
+                    <input type="hidden" name="branch_id" value="{{ s[3] }}">
+                    <input type="hidden" name="product_id" value="{{ s[4] }}">
+                    <input name="qty" type="number" min="0" value="{{ s[2] }}" required aria-label="Set stock quantity for {{ s[1] }}">
+                    <button type="submit">Update</button>
+                  </form>
+                </td>
+                {% endif %}
+              </tr>
+            {% endfor %}
+          {% else %}
+            <tr><td colspan="{% if is_owner %}5{% else %}4{% endif %}">No stock recorded.</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</body>
+</html>

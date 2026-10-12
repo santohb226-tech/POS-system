@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Point of Sale</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin:0; background:#0B3D6B; color:#e5e7eb; }
+    .topbar { padding:14px 18px; background:#1A1A2E; display:flex; align-items:center; justify-content:space-between; gap:12px; }
+    .brand { font-weight:900; }
+    .nav { display:flex; gap:14px; flex-wrap:wrap; justify-content:flex-end; }
+    a { color:#93c5fd; text-decoration:none; }
+    a:hover { text-decoration:underline; }
+    .btn { display:inline-block; padding:10px 12px; border-radius:10px; background:#2C7BE5; color:#fff; font-weight:700; }
+    .btn-secondary { background:#5F0F40; }
+    .wrap { padding:14px; max-width:1200px; margin:0 auto; }
+    .grid { display:grid; grid-template-columns: 1fr 1fr; gap:14px; }
+    @media (max-width: 980px){ .grid { grid-template-columns: 1fr; } }
+    .card { background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); border-radius:14px; padding:14px; }
+    h2 { margin:0 0 12px; font-size:16px; color:#fff; }
+    .field { margin:10px 0; }
+    label { display:block; font-size:13px; margin-bottom:6px; color:#dbeafe; }
+    input, select { width:100%; padding:10px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.08); color:#fff; }
+    select, select option { background-color:#fff; color:#111; }
+    input::placeholder { color:rgba(255,255,255,0.6); }
+    .flash { padding:10px 12px; border-radius:10px; margin:10px 0; font-size:14px; }
+    .danger { background:#6B2737; border:1px solid rgba(255,255,255,0.15); }
+    .success { background:#1B4332; border:1px solid rgba(255,255,255,0.15); }
+
+    .product-grid { display:grid; grid-template-columns: repeat(2, 1fr); gap:10px; }
+    @media (max-width: 600px){ .product-grid { grid-template-columns: 1fr; } }
+
+    .prod { background:rgba(0,0,0,0.15); border:1px solid rgba(255,255,255,0.12); border-radius:12px; padding:10px; }
+    .prod .name { font-weight:800; color:#fff; margin-bottom:4px; font-size:13px; }
+    .prod .meta { font-size:12px; opacity:0.9; }
+    .prod input { margin-top:10px; }
+    .btn-row { display:flex; gap:10px; margin-top:10px; }
+    button { width:100%; padding:12px; border:none; border-radius:10px; background:#2C7BE5; color:#fff; font-weight:900; cursor:pointer; }
+    .btn-dark { background:#5F0F40; }
+    table { width:100%; border-collapse:collapse; margin-top:10px; }
+    th, td { padding:10px 8px; border-bottom:1px solid rgba(255,255,255,0.12); font-size:13px; }
+    th { text-align:left; color:#c7d2fe; }
+    .right { text-align:right; }
+    .muted { opacity:0.85; font-size:12px; margin-top:6px; }
+    .cart-wrap { max-height:300px; overflow:auto; border-radius:12px; }
+    .totals { display:flex; justify-content:space-between; margin-top:12px; font-size:15px; }
+    .totals .big { font-size:22px; font-weight:900; color:#fff; }
+    .barcode-row { display:flex; gap:10px; align-items:center; }
+    .barcode-row input { flex:1; }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="brand">POS</div>
+    <div class="nav">
+      <a class="btn" href="/dashboard">Dashboard</a>
+      <a class="btn btn-secondary" href="/stock/manage">Stock</a>
+      <a class="btn btn-secondary" href="/reports/sales">Report</a>
+      <form method="post" action="/logout" class="d-inline"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="btn btn-secondary" type="submit">Logout</button></form>
+    </div>
+  </div>
+
+  <div class="wrap">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="flash {{ 'danger' if category=='danger' else 'success' }}">{{ message }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    <div class="grid">
+      <div class="card">
+        <h2>Sale Details</h2>
+
+        <form method="POST" action="/pos" id="checkoutForm">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <div class="field">
+            <label>Customer Name</label>
+            <input name="customer_name" placeholder="Walk-in customer" maxlength="150">
+          </div>
+
+          <div class="field">
+            <label>Branch</label>
+            {% if branches and selected_branch is not none %}
+              {% if session.get('role') == 'super_admin' %}
+                <select name="branch_id" onchange="window.location.href='/pos?branch_id='+encodeURIComponent(this.value);">
+                  {% for b in branches %}
+                    <option value="{{ b[0] }}" {% if b[0]==selected_branch %}selected{% endif %}>{{ b[1] }}</option>
+                  {% endfor %}
+                </select>
+              {% else %}
+                <input type="hidden" name="branch_id" value="{{ selected_branch }}">
+                <input value="Your Branch (ID {{ selected_branch }})" disabled>
+              {% endif %}
+            {% else %}
+              <input value="No branch assigned" disabled>
+            {% endif %}
+          </div>
+
+          <div class="field">
+            <label>Scan Barcode (optional)</label>
+            <div class="barcode-row">
+              <input id="barcode" placeholder="Enter barcode then press Add" />
+              <button type="button" class="btn-dark" style="width:160px;" onclick="scanAdd()">Add</button>
+            </div>
+            <div class="muted">You can also add products from the list below.</div>
+          </div>
+
+          <input type="hidden" name="cart" id="cartInput" value="[]">
+
+          <div class="field">
+            <button type="submit">Checkout (Pay now)</button>
+            <div class="muted" style="margin-top:8px;">
+              Checkout will finalize and deduct stock immediately.
+            </div>
+          </div>
+        </form>
+      </div>
+
+      <div class="card">
+        <h2>Products & Cart</h2>
+
+        <div class="product-grid">
+          {% if products %}
+            {% for p in products %}
+              <div class="prod">
+                <div class="name">{{ p[1] }}</div>
+                <div class="meta">
+                  Category: {{ p[2] }}<br>
+                  Price: {{ p[3] }}<br>
+                  Barcode: {{ p[5] }}<br>
+                  Available: {{ p[4] }}
+                </div>
+
+                <div class="btn-row">
+                  <input type="number" min="1" value="1" id="qty_{{ p[0] }}" style="width:110px;">
+                  <button type="button" style="width:auto; padding:12px 14px;" data-product-id="{{ p[0] }}" data-product-name="{{ p[1] }}" data-product-price="{{ p[3] }}" onclick="addToCartFromButton(this)">Add</button>
+                </div>
+              </div>
+            {% endfor %}
+          {% else %}
+            <div class="muted">No products found for this branch.</div>
+          {% endif %}
+        </div>
+
+        <div class="section" style="margin-top:14px;">
+          <div class="card" style="background:rgba(0,0,0,0.12); border-radius:12px; margin:0; padding:12px; border:1px solid rgba(255,255,255,0.12);">
+            <h2 style="margin:0 0 10px;">Cart</h2>
+            <div class="cart-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Product</th>
+                    <th class="right">Qty</th>
+                    <th class="right">Line Total</th>
+                  </tr>
+                </thead>
+                <tbody id="cartBody">
+                  <!-- filled by JS -->
+                </tbody>
+              </table>
+            </div>
+
+            <div class="totals">
+              <div class="muted">Total</div>
+              <div class="big" id="cartTotal">0</div>
+            </div>
+
+            <div class="btn-row" style="margin-top:12px;">
+              <button type="button" class="btn-dark" onclick="clearCart()" style="width:50%;">Clear</button>
+              <button type="button" style="width:50%;" onclick="syncCart()">Update</button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const cart = []; // {product_id, quantity}
+    function fmt(n){
+      try { return Number(n).toLocaleString(); } catch(e){ return n; }
+    }
+
+    function getCartStateMap(){
+      const map = {};
+      for (const line of cart) map[line.product_id] = line.quantity;
+      return map;
+    }
+
+    function renderCart(){
+      const body = document.getElementById('cartBody');
+      body.innerHTML = '';
+      let total = 0;
+
+      // To compute line total, store price from DOM in hidden lookup:
+      // We'll look up price from data attributes during add.
+      for (const line of cart){
+        const tr = document.createElement('tr');
+
+        const nameTd = document.createElement('td');
+        nameTd.textContent = line.name;
+
+        const qtyTd = document.createElement('td');
+        qtyTd.className = 'right';
+        qtyTd.textContent = line.quantity;
+
+        const lineTotal = line.quantity * line.price;
+        total += lineTotal;
+
+        const ltTd = document.createElement('td');
+        ltTd.className = 'right';
+        ltTd.textContent = fmt(lineTotal);
+
+        tr.appendChild(nameTd);
+        tr.appendChild(qtyTd);
+        tr.appendChild(ltTd);
+        body.appendChild(tr);
+      }
+
+      document.getElementById('cartTotal').textContent = fmt(total);
+    }
+
+    function syncCart(){
+      document.getElementById('cartInput').value = JSON.stringify(cart.map(x => ({product_id:x.product_id, quantity:x.quantity})));
+      renderCart();
+    }
+
+    function addToCart(product_id, name, price){
+      const qtyInput = document.getElementById('qty_' + product_id);
+      const qty = qtyInput ? parseInt(qtyInput.value || '1', 10) : 1;
+      const safeQty = Number.isFinite(qty) && qty > 0 ? qty : 1;
+
+      const existing = cart.find(x => x.product_id === product_id);
+      if (existing){
+        existing.quantity += safeQty;
+      } else {
+        cart.push({ product_id, quantity: safeQty, name, price: Number(price) || 0 });
+      }
+      syncCart();
+    }
+
+    function addToCartFromButton(button){
+      addToCart(Number(button.dataset.productId), button.dataset.productName, button.dataset.productPrice);
+    }
+
+    function clearCart(){
+      cart.length = 0;
+      syncCart();
+    }
+
+    async function scanAdd(){
+      const code = document.getElementById('barcode').value.trim();
+      if (!code) return;
+
+      const res = await fetch('/api/product/by-barcode?code=' + encodeURIComponent(code), { headers: { 'Accept': 'application/json' }});
+      const data = await res.json();
+      if (!data.found){
+        alert('Product not found for barcode: ' + code);
+        return;
+      }
+      // Add 1 quantity
+      const pid = data.id;
+      addToCart(pid, data.name, data.price);
+      document.getElementById('barcode').value = '';
+    }
+
+    // Initial render
+    renderCart();
+    syncCart();
+  </script>
+</body>
+</html>

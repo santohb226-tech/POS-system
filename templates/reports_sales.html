@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sales Report</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin:0; background:radial-gradient(ellipse at top left, rgba(37,99,235,.2), transparent 42%), linear-gradient(135deg,#0b1220 0%,#10233a 55%,#0f2f3b 100%); background-attachment:fixed; min-height:100vh; color:#e5e7eb; }
+    .topbar { padding:14px 18px; background:#1A1A2E; display:flex; align-items:center; justify-content:space-between; gap:12px; }
+    .brand { font-weight:900; }
+    .nav { display:flex; gap:14px; flex-wrap:wrap; justify-content:flex-end; }
+    .btn { display:inline-block; padding:10px 12px; border-radius:10px; background:#2C7BE5; color:#fff; font-weight:700; }
+    .btn-secondary { background:#5F0F40; }
+    a { color:#93c5fd; text-decoration:none; }
+    a:hover { text-decoration:underline; }
+    .wrap { padding:14px; max-width:1100px; margin:0 auto; }
+    .grid { display:grid; grid-template-columns: 1fr 1fr; gap:14px; }
+    @media (max-width: 900px){ .grid { grid-template-columns: 1fr; } }
+    .card { background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); border-radius:14px; padding:14px; }
+    h2 { margin:0 0 12px; font-size:16px; color:#fff; }
+    .field { margin:10px 0; }
+    label { display:block; font-size:13px; margin-bottom:6px; color:#dbeafe; }
+    input { width:100%; padding:10px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.08); color:#fff; }
+    button { width:100%; padding:12px; border:none; border-radius:10px; background:#2C7BE5; color:#fff; font-weight:900; cursor:pointer; }
+    .metric { font-weight:900; font-size:24px; color:#fff; }
+    table { width:100%; border-collapse:collapse; margin-top:10px; }
+    th, td { padding:10px 8px; border-bottom:1px solid rgba(255,255,255,0.12); font-size:13px; }
+    th { text-align:left; color:#c7d2fe; }
+    .right { text-align:right; }
+    .muted { opacity:0.85; font-size:12px; margin-top:8px; }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="brand">Sales Report</div>
+    <div class="nav">
+      <a class="btn" href="/dashboard">Dashboard</a>
+      <a class="btn btn-secondary" href="/pos">POS</a>
+      <form method="post" action="/logout" class="d-inline"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="btn btn-secondary" type="submit">Logout</button></form>
+    </div>
+  </div>
+
+  <div class="wrap">
+    <div class="card">
+      <h2>Filter</h2>
+      <form method="GET" action="/reports/sales" class="grid">
+        <div class="field">
+          <label>From (YYYY-MM-DD)</label>
+          <input name="from" value="{{ from_day }}">
+        </div>
+        <div class="field">
+          <label>To (YYYY-MM-DD)</label>
+          <input name="to" value="{{ to_day }}">
+        </div>
+        <div class="field" style="grid-column: span 2;">
+          <button type="submit">Run Report</button>
+          <div class="muted">Showing finalized sales only.</div>
+        </div>
+      </form>
+    </div>
+
+    <div class="grid" style="margin-top:14px;">
+      <div class="card">
+        <h2>Totals</h2>
+        <div class="metric">{{ revenue }}</div>
+        <div class="muted">Revenue (total sales)</div>
+
+        <div style="margin-top:14px;">
+          <div class="muted">Profit</div>
+          <div class="metric" style="font-size:20px;">{{ profit }}</div>
+        </div>
+
+        <div style="margin-top:14px;">
+          <div class="muted">Orders Count</div>
+          <div class="metric" style="font-size:20px;">{{ orders_count }}</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Top Products</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Product</th>
+              <th class="right">Qty</th>
+              <th class="right">Total</th>
+              <th class="right">Profit</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% if top_products %}
+              {% for r in top_products %}
+                <tr>
+                  <td>{{ r[0] }}</td>
+                  <td class="right">{{ r[3] }}</td>
+                  <td class="right">{{ r[1] }}</td>
+                  <td class="right">{{ r[2] }}</td>
+                </tr>
+              {% endfor %}
+            {% else %}
+              <tr><td colspan="4">No data.</td></tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:14px;">
+      <h2>Daily Performance</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th class="right">Total</th>
+            <th class="right">Profit</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% if daily %}
+            {% for d in daily %}
+              <tr>
+                <td>{{ d[0] }}</td>
+                <td class="right">{{ d[1] }}</td>
+                <td class="right">{{ d[2] }}</td>
+              </tr>
+            {% endfor %}
+          {% else %}
+            <tr><td colspan="3">No data in range.</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+
+  </div>
+</body>
+</html>

@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lead Detail</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin:0; background:radial-gradient(ellipse at top left, rgba(37,99,235,.2), transparent 42%), linear-gradient(135deg,#0b1220 0%,#10233a 55%,#0f2f3b 100%); background-attachment:fixed; min-height:100vh; color:#e5e7eb; }
+    .topbar { padding:14px 18px; background:#0B3D6B; display:flex; align-items:center; justify-content:space-between; gap:12px; }
+    .brand { font-weight:900; }
+    .nav { display:flex; gap:14px; flex-wrap:wrap; justify-content:flex-end; }
+    .btn { display:inline-block; padding:10px 12px; border-radius:10px; background:#2C7BE5; color:#fff; font-weight:700; }
+    .btn-secondary { background:#5F0F40; }
+    a { color:#93c5fd; text-decoration:none; }
+    a:hover { text-decoration:underline; }
+    .wrap { padding:14px; max-width:1100px; margin:0 auto; }
+    .card { background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); border-radius:14px; padding:14px; margin-top:12px; }
+    h2 { margin:0 0 12px; font-size:16px; color:#fff; }
+    .kv { display:grid; grid-template-columns: 180px 1fr; gap:8px 12px; font-size:13px; }
+    .kv div:nth-child(odd){ color:#c7d2fe; }
+    table { width:100%; border-collapse:collapse; margin-top:10px; }
+    th, td { padding:10px 8px; border-bottom:1px solid rgba(255,255,255,0.12); font-size:13px; }
+    th { text-align:left; color:#c7d2fe; }
+    .muted { opacity:0.85; font-size:12px; margin-top:8px; }
+    .flash { padding:10px 12px; border-radius:10px; margin:10px 0; background:#6B2737; border:1px solid rgba(255,255,255,0.15); }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="brand">Lead Detail</div>
+    <div class="nav">
+      <a class="btn" href="/leads">Back to Leads</a>
+      <a class="btn btn-secondary" href="/pos">POS</a>
+      <form method="post" action="/logout" class="d-inline"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="btn btn-secondary" type="submit">Logout</button></form>
+    </div>
+  </div>
+
+  <div class="wrap">
+    <div class="card">
+      <h2>Lead Information</h2>
+      <div class="kv">
+        <div>Lead ID</div><div>{{ lead[0] }}</div>
+        <div>Lead Name</div><div>{{ lead[2] }}</div>
+        <div>Contact Name</div><div>{{ lead[3] }}</div>
+        <div>Phone</div><div>{{ lead[5] }}</div>
+        <div>Email</div><div>{{ lead[4] }}</div>
+        <div>Source</div><div>{{ lead[6] }}</div>
+        <div>Status</div><div>{{ lead[7] }}</div>
+        <div>Priority</div><div>{{ lead[8] }}</div>
+        <div>Created At</div><div>{{ lead[9] }}</div>
+        <div>Last Contacted</div><div>{{ lead[10] }}</div>
+        <div>Next Follow-up</div><div>{{ lead[11] }}</div>
+      </div>
+      <div class="muted">
+        Update status from the leads list page to automatically create a draft invoice when marking as Won.
+      </div>
+      {% if lead[6] %}
+      <div style="margin-top:14px;">
+        <a class="btn" href="/leads/{{ lead[0] }}/whatsapp" target="_blank" rel="noopener">WhatsApp Follow-up</a>
+      </div>
+      {% endif %}
+    </div>
+
+    <div class="card">
+      <h2>Lead Activities</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Type</th>
+            <th>Summary</th>
+            <th>Next Follow-up</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% if activities %}
+            {% for a in activities %}
+              <tr>
+                <td>{{ a[5] }}</td>
+                <td>{{ a[2] }}</td>
+                <td>{{ a[4] }}</td>
+                <td>{{ a[6] }}</td>
+              </tr>
+            {% endfor %}
+          {% else %}
+            <tr><td colspan="4">No activities yet.</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</body>
+</html>

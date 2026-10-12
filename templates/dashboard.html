@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0B3D6B">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Niyoo Farm">
+  <link rel="manifest" href="/static/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/static/niyoo-icon-192.png">
+  <title>Dashboard</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin:0; background:radial-gradient(ellipse at top left, rgba(37,99,235,.2), transparent 42%), linear-gradient(135deg,#0b1220 0%,#10233a 55%,#0f2f3b 100%); background-attachment:fixed; min-height:100vh; color:#e5e7eb; }
+    a { color:#93c5fd; text-decoration:none; }
+    a:hover { text-decoration:underline; }
+    .topbar { padding:14px 18px; background:#0B3D6B; display:flex; align-items:center; justify-content:space-between; gap:12px; }
+    .brand { font-weight:800; letter-spacing:0.2px; }
+    .nav { display:flex; gap:14px; flex-wrap:wrap; justify-content:flex-end; }
+    .card-grid { display:grid; grid-template-columns: repeat(12, 1fr); gap:12px; padding:14px; }
+    .card { grid-column: span 6; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); border-radius:14px; padding:14px; }
+    .card h3 { margin:0 0 10px; font-size:15px; color:#fff; }
+    .metric { font-size:26px; font-weight:900; color:#ffffff; }
+    .muted { opacity:0.85; font-size:13px; margin-top:6px; }
+    .table { width:100%; border-collapse:collapse; margin-top:10px; }
+    .table th, .table td { padding:10px 8px; border-bottom:1px solid rgba(255,255,255,0.12); font-size:13px; }
+    .table th { text-align:left; color:#c7d2fe; }
+    .btn { display:inline-block; padding:10px 12px; border-radius:10px; background:#2C7BE5; color:#fff; font-weight:700; }
+    .btn-secondary { background:#5F0F40; }
+    .section { margin-top:12px; }
+    .span12 { grid-column: span 12; }
+    .span4 { grid-column: span 4; }
+    @media (max-width: 900px){ .card { grid-column: span 12; } .span4 { grid-column: span 12; } }
+    .flash { padding:10px 12px; border-radius:10px; margin:10px 18px; background:#6B2737; border:1px solid rgba(255,255,255,0.15); color:#fff; display:none; }
+    .alert-action { border:0; border-radius:10px; padding:10px 12px; background:#2C7BE5; color:#fff; font-weight:700; cursor:pointer; }
+    .alert-action.secondary { background:#5F0F40; }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="brand">Niyoo Farm Services</div>
+    <div class="nav">
+      <a class="btn" href="/pos">POS</a>
+      <a class="btn btn-secondary" href="/receipts">Receipts</a>
+      <a class="btn btn-secondary" href="/billing">Invoices</a>
+      <a class="btn btn-secondary" href="/leads">Leads</a>
+      <a class="btn btn-secondary" href="/reports/sales">Sales Report</a>
+      <form method="post" action="/logout" class="d-inline"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="btn btn-secondary" type="submit">Logout</button></form>
+    </div>
+  </div>
+
+  <div class="card-grid">
+    {% if is_admin %}
+    <div class="card span12">
+      <h3>Phone alerts</h3>
+      <p class="muted" id="push-status" aria-live="polite">Enable notifications to receive new-lead, low-stock, and staff sales-report alerts on this device.</p>
+      <button class="alert-action" type="button" id="enable-push">Enable phone alerts</button>
+      <button class="alert-action secondary" type="button" id="disable-push">Disable on this device</button>
+    </div>
+    {% endif %}
+    <div class="card span4">
+      <h3>Revenue</h3>
+      <div class="metric">{{ revenue }}</div>
+      <div class="muted">Total sales (paid)</div>
+    </div>
+    <div class="card span4">
+      <h3>Profit</h3>
+      <div class="metric">{{ profit }}</div>
+      <div class="muted">Gross profit</div>
+    </div>
+    <div class="card span4">
+      <h3>Follow-ups Overdue</h3>
+      <div class="metric">{{ overdue_lead_followups }}</div>
+      <div class="muted">Leads that need attention</div>
+    </div>
+
+    <div class="card span12 section">
+      <h3>Branch Totals{% if not is_admin %} (your branch view){% endif %}</h3>
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Branch</th>
+            <th>Total Sales</th>
+            <th>Profit</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% if branch_totals %}
+            {% for b in branch_totals %}
+              <tr>
+                <td>{{ b[0] }}</td>
+                <td>{{ b[1] }}</td>
+                <td>{{ b[2] }}</td>
+              </tr>
+            {% endfor %}
+          {% else %}
+            <tr><td colspan="3">No data yet.</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card span12 section">
+      <h3>Low Stock (≤ 5)</h3>
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Branch</th>
+            <th>Product</th>
+            <th>Qty</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% if low_stock %}
+            {% for row in low_stock %}
+              <tr>
+                <td>{{ row[0] }}</td>
+                <td>{{ row[1] }}</td>
+                <td>{{ row[2] }}</td>
+              </tr>
+            {% endfor %}
+          {% else %}
+            <tr><td colspan="3">No low stock items.</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+
+      <div style="margin-top:12px; display:flex; gap:10px; flex-wrap:wrap;">
+        <a class="btn" href="/stock/manage">Manage Stock</a>
+        {% if is_admin %}
+          <a class="btn btn-secondary" href="/staff">Staff</a>
+          <a class="btn btn-secondary" href="/branches">Branches</a>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="card span12 section">
+      <h3>Recent Sales</h3>
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% if recent_sales %}
+            {% for r in recent_sales %}
+              <tr>
+                <td>{{ r[0] }}</td>
+                <td>{{ r[1] }}</td>
+              </tr>
+            {% endfor %}
+          {% else %}
+            <tr><td colspan="2">No recent sales.</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+
+  </div>
+  {% if is_admin %}
+  <script>
+    const pushStatus = document.getElementById("push-status");
+    const enablePush = document.getElementById("enable-push");
+    const disablePush = document.getElementById("disable-push");
+    const csrfToken = {{ push_csrf_token|tojson }};
+
+    function setPushStatus(message) {
+      pushStatus.textContent = message;
+    }
+
+    function decodeApplicationServerKey(value) {
+      const padding = "=".repeat((4 - value.length % 4) % 4);
+      const base64 = (value + padding).replace(/-/g, "+").replace(/_/g, "/");
+      const raw = window.atob(base64);
+      return Uint8Array.from(raw, character => character.charCodeAt(0));
+    }
+
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/service-worker.js").catch(error => {
+        setPushStatus("Could not prepare phone notifications: " + error.message);
+      });
+    }
+
+    enablePush.addEventListener("click", async function() {
+      if (!window.isSecureContext || !("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) {
+        setPushStatus("Phone push alerts require HTTPS and a browser that supports notifications.");
+        return;
+      }
+      try {
+        const permission = await Notification.requestPermission();
+        if (permission !== "granted") {
+          setPushStatus("Notifications were not allowed. Enable them in your browser settings to receive alerts.");
+          return;
+        }
+
+        const configResponse = await fetch("/api/push/config");
+        const config = await configResponse.json();
+        if (!configResponse.ok) throw new Error(config.error || "Could not check push configuration.");
+        if (!config.enabled) {
+          if (config.reason === "dependency") {
+            setPushStatus("Phone alerts are unavailable because pywebpush is not installed on the server. Install the project's requirements to enable them.");
+          } else {
+            setPushStatus("The server must be configured with PUSH_VAPID_PUBLIC_KEY, PUSH_VAPID_PRIVATE_KEY, and PUSH_VAPID_SUBJECT before alerts can be enabled.");
+          }
+          return;
+        }
+
+        const registration = await navigator.serviceWorker.register("/service-worker.js");
+        await navigator.serviceWorker.ready;
+        let subscription = await registration.pushManager.getSubscription();
+        if (!subscription) {
+          subscription = await registration.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: decodeApplicationServerKey(config.public_key)
+          });
+        }
+
+        const response = await fetch("/api/push/subscribe", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({csrf_token: csrfToken, subscription: subscription.toJSON()})
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || "Could not save this device subscription.");
+        setPushStatus("Phone alerts are enabled on this device.");
+      } catch (error) {
+        setPushStatus("Could not enable phone alerts: " + error.message);
+      }
+    });
+
+    disablePush.addEventListener("click", async function() {
+      try {
+        const registration = await navigator.serviceWorker.getRegistration("/");
+        const subscription = registration && await registration.pushManager.getSubscription();
+        if (!subscription) {
+          setPushStatus("Phone alerts are not enabled on this device.");
+          return;
+        }
+        const response = await fetch("/api/push/unsubscribe", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({csrf_token: csrfToken, endpoint: subscription.endpoint})
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || "Could not remove this device.");
+        await subscription.unsubscribe();
+        setPushStatus("Phone alerts are disabled on this device.");
+      } catch (error) {
+        setPushStatus("Could not disable phone alerts: " + error.message);
+      }
+    });
+  </script>
+  {% endif %}
+</body>
+</html>

@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Staff</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin:0; background:radial-gradient(ellipse at top left, rgba(37,99,235,.2), transparent 42%), linear-gradient(135deg,#0b1220 0%,#10233a 55%,#0f2f3b 100%); background-attachment:fixed; min-height:100vh; color:#e5e7eb; }
+    .topbar { padding:14px 18px; background:#0B3D6B; display:flex; align-items:center; justify-content:space-between; gap:12px; }
+    .brand { font-weight:800; }
+    .nav { display:flex; gap:14px; flex-wrap:wrap; justify-content:flex-end; }
+    a { color:#93c5fd; text-decoration:none; }
+    a:hover { text-decoration:underline; }
+    .btn { display:inline-block; padding:10px 12px; border-radius:10px; background:#2C7BE5; color:#fff; font-weight:700; border:1px solid rgba(0,0,0,0.1); }
+    .btn-secondary { background:#6B2737; }
+    .wrap { padding:14px; max-width:1100px; margin:0 auto; }
+    .grid { display:grid; grid-template-columns: 1fr 1fr; gap:14px; }
+    @media (max-width: 900px){ .grid { grid-template-columns: 1fr; } }
+    .card { background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); border-radius:14px; padding:14px; }
+    h2 { margin:0 0 12px; font-size:16px; color:#fff; }
+    .field { margin:10px 0; }
+    label { display:block; font-size:13px; margin-bottom:6px; color:#dbeafe; }
+    input, select { width:100%; padding:10px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.08); color:#fff; }
+    select, select option { background-color:#fff; color:#111; }
+    button { width:100%; padding:12px; border-radius:10px; border:none; background:#2C7BE5; color:#fff; font-weight:800; cursor:pointer; }
+    .table { width:100%; border-collapse:collapse; margin-top:10px; }
+    .table th, .table td { padding:10px 8px; border-bottom:1px solid rgba(255,255,255,0.12); font-size:13px; }
+    .table th { text-align:left; color:#c7d2fe; }
+    .flash { padding:10px 12px; border-radius:10px; margin:10px 0; font-size:14px; }
+    .danger { background:#6B2737; border:1px solid rgba(255,255,255,0.15); }
+    .success { background:#1B4332; border:1px solid rgba(255,255,255,0.15); }
+    .right { text-align:right; }
+    .muted { opacity:0.85; font-size:12px; margin-top:6px; }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="brand">Manage Staff</div>
+    <div class="nav">
+      <a class="btn" href="/dashboard">Dashboard</a>
+      <a class="btn btn-secondary" href="/stock/manage">Stock</a>
+      <a class="btn btn-secondary" href="/branches">Branches</a>
+      <form method="post" action="/logout" class="d-inline"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="btn btn-secondary" type="submit">Logout</button></form>
+    </div>
+  </div>
+
+  <div class="wrap">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="flash {{ 'danger' if category=='danger' else 'success' }}">{{ message }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    <div class="grid">
+      <div class="card">
+        <h2>Create Staff or Administrator</h2>
+        <form method="POST" action="/staff">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <div class="field">
+            <label>Username</label>
+            <input name="username" required>
+          </div>
+          <div class="field">
+            <label>PIN / Password</label>
+            <input name="password" type="password" required>
+          </div>
+          <div class="field">
+            <label>Role</label>
+            <select name="role" id="account-role" onchange="toggleBranchRequirement()">
+              <option value="staff">Staff (branch locked)</option>
+              {% if admin_count < 3 %}<option value="super_admin">Administrator (all branches)</option>{% endif %}
+            </select>
+            <div class="muted">Administrators: {{ admin_count }} of 3 (including owner).</div>
+          </div>
+          <div class="field" id="staff-branch-field">
+            <label>Assigned Branch</label>
+            <select name="branch_id" id="branch-id">
+              <option value="">Choose branch</option>
+              {% for b in branches %}
+                <option value="{{ b[0] }}">{{ b[3] }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <button type="submit">Create</button>
+        </form>
+      </div>
+
+      <div class="card">
+        <h2>Staff List</h2>
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Username</th>
+              <th>Role</th>
+              <th>Branch</th>
+              <th class="right">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% if staff %}
+              {% for u in staff %}
+                <tr>
+                  <td>{{ u[1] }}</td>
+                  <td>{{ u[4] }}</td>
+                  <td>{{ u[5] }}</td>
+                  <td class="right">
+                    {% if u[1] != secure_admin %}
+                      <form method="POST" action="/staff/delete/{{ u[0] }}" style="display:inline;">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <button class="btn btn-secondary" type="submit" style="padding:8px 10px;">Delete</button>
+                      </form>
+                    {% else %}
+                      <span style="opacity:0.8;">Protected</span>
+                    {% endif %}
+                  </td>
+                </tr>
+              {% endfor %}
+            {% else %}
+              <tr><td colspan="4">No staff yet.</td></tr>
+            {% endif %}
+          </tbody>
+        </table>
+        <div class="muted">Owner account cannot be deleted.</div>
+      </div>
+    </div>
+  </div>
+  <script>
+    function toggleBranchRequirement() {
+      var isStaff = document.getElementById("account-role").value === "staff";
+      var branchField = document.getElementById("staff-branch-field");
+      var branchSelect = document.getElementById("branch-id");
+      branchField.style.display = isStaff ? "" : "none";
+      branchSelect.required = isStaff;
+      if (!isStaff) branchSelect.value = "";
+    }
+    toggleBranchRequirement();
+  </script>
+</body>
+</html>

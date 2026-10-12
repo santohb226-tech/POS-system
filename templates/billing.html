@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+<title>Point of Sale</title>
+<style>
+.product-card { cursor: pointer; }
+.product-card:hover { border-color: #198754; }
+</style>
+</head>
+<body class="bg-light">
+<nav class="navbar bg-dark navbar-dark px-3"><a href="/dashboard" class="btn btn-sm btn-light">Dashboard</a><span class="navbar-brand mb-0 ms-3">Point of Sale</span></nav>
+<main class="container-fluid py-3">
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% for category, message in messages %}<div class="alert alert-{{ category }}">{{ message }}</div>{% endfor %}
+{% endwith %}
+{% if branches %}
+<div class="row g-3">
+  <section class="col-lg-8">
+    <div class="card p-3">
+      <form method="get" action="/pos" class="row g-2 mb-3">
+        <div class="col-md-5">
+          {% if branches|length > 1 %}
+          <select name="branch_id" class="form-select" onchange="this.form.submit()">{% for branch in branches %}<option value="{{ branch[0] }}" {% if branch[0]==selected_branch %}selected{% endif %}>{{ branch[1] }}</option>{% endfor %}</select>
+          {% else %}<div class="form-control bg-light">{{ branches[0][1] }}</div><input type="hidden" name="branch_id" value="{{ selected_branch }}">{% endif %}
+        </div>
+        <div class="col-md-7"><input id="search" type="search" class="form-control" placeholder="Search products or scan barcode and press Enter" autocomplete="off"></div>
+      </form>
+      <div class="row g-2" id="products">
+        {% for product in products %}
+        <div class="col-sm-6 col-xl-4 product-item" data-search="{{ (product[1] ~ ' ' ~ (product[5] or ''))|lower }}">
+          <div class="card product-card p-3 h-100">
+            <strong>{{ product[1] }}</strong><small class="text-muted">{{ product[2] }}</small>
+            <span class="mt-2">UGX {{ "%.0f"|format(product[3]) }}</span>
+            <small class="{% if product[4] <= 0 %}text-danger{% else %}text-muted{% endif %}">Stock: {{ product[4] }}</small>
+            <div class="input-group input-group-sm mt-2">
+              <input id="quantity-{{ product[0] }}" class="form-control" type="number" min="1" max="{{ product[4] }}" value="1" aria-label="Quantity of {{ product[1] }}" {% if product[4] <= 0 %}disabled{% endif %}>
+              <button type="button" class="btn btn-success add-to-cart" data-product-id="{{ product[0] }}" onclick="window.addToCart(this.getAttribute('data-product-id'))" {% if product[4] <= 0 %}disabled{% endif %}>Add to cart</button>
+            </div>
+            <small id="quantity-error-{{ product[0] }}" class="text-danger"></small>
+          </div>
+        </div>
+        {% else %}<p class="text-muted mb-0">No products are set up yet.</p>{% endfor %}
+      </div>
+    </div>
+  </section>
+  <section class="col-lg-4">
+    <div class="card p-3">
+      <h1 class="h5">Current sale</h1>
+      <form method="post" action="/pos" id="checkout-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="branch_id" value="{{ selected_branch }}">
+        <input type="hidden" name="cart" id="cart-data">
+        <label for="customer" class="form-label">Customer (optional)</label>
+        <input id="customer" name="customer_name" class="form-control mb-3" maxlength="150" placeholder="Walk-in customer">
+        <div id="cart-items"><p class="text-muted">Select products to add them here.</p></div>
+        <div class="d-flex justify-content-between border-top pt-3 mt-2"><strong>Total</strong><strong id="cart-total">UGX 0</strong></div>
+        <button id="checkout" type="submit" class="btn btn-success w-100 mt-3">Sell Now</button>
+        <small class="text-muted d-block mt-2">Completes the sale, records payment, and deducts stock.</small>
+      </form>
+    </div>
+  </section>
+</div>
+{% else %}<div class="alert alert-warning">No branch is available for your account. Ask an administrator to set up a branch.</div>{% endif %}
+</main>
+<script id="catalog-data" type="application/json">{{ products|tojson }}</script>
+<script>
+var productRows = JSON.parse(document.getElementById("catalog-data").textContent);
+var catalog = {};
+for (var catalogIndex = 0; catalogIndex < productRows.length; catalogIndex++) {
+  var product = productRows[catalogIndex];
+  catalog[product[0]] = {
+    id: product[0],
+    name: product[1],
+    price: product[3],
+    stock: product[4],
+    barcode: product[5]
+  };
+}
+var cart = {};
+var checkoutForm = document.getElementById("checkout-form");
+
+function money(value) {
+  return "UGX " + Math.round(value).toLocaleString();
+}
+
+window.addToCart = function(id) {
+  var item = catalog[id];
+  var quantityInput = document.getElementById("quantity-" + id);
+  var error = document.getElementById("quantity-error-" + id);
+  if (!item || !quantityInput || !error) {
+    alert("Unable to add this product to the cart. Please refresh the page and try again.");
+    return;
+  }
+  var quantity = Number(quantityInput.value);
+  var alreadyAdded = cart[id] || 0;
+  if (quantityInput.value === "" || !isFinite(quantity) || Math.floor(quantity) !== quantity || quantity < 1 || alreadyAdded + quantity > item.stock) {
+    error.textContent = "Enter a quantity from 1 to " + Math.max(0, item.stock - alreadyAdded) + ".";
+    return;
+  }
+  error.textContent = "";
+  cart[id] = alreadyAdded + quantity;
+  renderCart();
+};
+
+function addScannedProduct(code) {
+  var normalizedCode = code.trim().toLowerCase();
+  var item = null;
+  var productIds = Object.keys(catalog);
+  for (var i = 0; i < productIds.length; i++) {
+    var product = catalog[productIds[i]];
+    if (product.barcode && product.barcode.toLowerCase() === normalizedCode) {
+      item = product;
+      break;
+    }
+  }
+  if (!item) {
+    alert("No product found for barcode: " + code);
+    return false;
+  }
+  var quantity = (cart[item.id] || 0) + 1;
+  if (quantity > item.stock) {
+    alert("Only " + Math.max(0, item.stock - (cart[item.id] || 0)) + " more unit(s) of " + item.name + " are available.");
+    return false;
+  }
+  cart[item.id] = quantity;
+  renderCart();
+  return true;
+}
+
+function changeQuantity(id, delta) {
+  var item = catalog[id];
+  var quantity = (cart[id] || 0) + delta;
+  if (quantity <= 0) delete cart[id];
+  else if (quantity <= item.stock) cart[id] = quantity;
+  updateCheckoutButton();
+  renderCart();
+}
+
+function updateCheckoutButton() {
+  var productIds = Object.keys(cart);
+  var submittedCart = [];
+  for (var i = 0; i < productIds.length; i++) {
+    submittedCart.push({product_id: productIds[i], quantity: cart[productIds[i]]});
+  }
+  document.getElementById("cart-data").value = JSON.stringify(submittedCart);
+  document.getElementById("checkout").disabled = false;
+}
+
+function renderCart() {
+  var productIds = Object.keys(cart);
+  var container = document.getElementById("cart-items");
+  var total = 0;
+  container.innerHTML = "";
+  if (!productIds.length) {
+    var empty = document.createElement("p");
+    empty.className = "text-muted";
+    empty.textContent = "Select products to add them here.";
+    container.appendChild(empty);
+  }
+  for (var i = 0; i < productIds.length; i++) {
+    var id = productIds[i];
+    var quantity = cart[id];
+    var item = catalog[id];
+    total += item.price * quantity;
+    var row = document.createElement("div");
+    row.className = "d-flex justify-content-between align-items-center border-bottom py-2 gap-2";
+    var label = document.createElement("div");
+    label.textContent = item.name + " — " + money(item.price * quantity);
+    var controls = document.createElement("div");
+    controls.className = "btn-group btn-group-sm";
+    var actions = [["−", -1, "Remove one"], ["+", 1, "Add one"]];
+    for (var j = 0; j < actions.length; j++) {
+      var text = actions[j][0];
+      var delta = actions[j][1];
+      var button = document.createElement("button");
+      button.type = "button";
+      button.className = "btn btn-outline-secondary";
+      button.textContent = text;
+      button.title = actions[j][2];
+      button.disabled = delta > 0 && quantity >= item.stock;
+      button.setAttribute("data-product-id", id);
+      button.setAttribute("data-delta", delta);
+      button.onclick = function() {
+        changeQuantity(this.getAttribute("data-product-id"), Number(this.getAttribute("data-delta")));
+      };
+      controls.appendChild(button);
+    }
+    var count = document.createElement("span");
+    count.className = "px-2 align-self-center";
+    count.textContent = quantity;
+    controls.insertBefore(count, controls.lastChild);
+    row.appendChild(label);
+    row.appendChild(controls);
+    container.appendChild(row);
+  }
+  document.getElementById("cart-total").textContent = money(total);
+  updateCheckoutButton();
+}
+
+function filterProducts() {
+  var productSearch = document.getElementById("search");
+  var term = productSearch.value.trim().toLowerCase();
+  var productItems = document.querySelectorAll(".product-item");
+  for (var i = 0; i < productItems.length; i++) {
+    var searchText = (productItems[i].getAttribute("data-search") || "").toLowerCase();
+    productItems[i].style.display = searchText.indexOf(term) === -1 ? "none" : "";
+  }
+}
+
+var productSearch = document.getElementById("search");
+if (productSearch) {
+  productSearch.addEventListener("input", filterProducts);
+  productSearch.addEventListener("keydown", function(event) {
+    event = event || window.event;
+    if (event.key !== "Enter" && event.keyCode !== 13) return;
+    var code = productSearch.value.trim();
+    if (!code) return;
+    var productIds = Object.keys(catalog);
+    var exactMatch = false;
+    for (var i = 0; i < productIds.length; i++) {
+      var product = catalog[productIds[i]];
+      if (product.barcode && product.barcode.toLowerCase() === code.toLowerCase()) {
+        exactMatch = true;
+        break;
+      }
+    }
+    if (!exactMatch) return;
+    if (event.preventDefault) event.preventDefault();
+    event.returnValue = false;
+    if (addScannedProduct(code)) {
+      productSearch.value = "";
+      filterProducts();
+      productSearch.focus();
+    }
+  });
+}
+
+if (checkoutForm) checkoutForm.addEventListener("submit", function(event) {
+  var productIds = Object.keys(cart);
+  if (!productIds.length) {
+    event.preventDefault();
+    alert("Add at least one product before completing the sale.");
+    return;
+  }
+  for (var i = 0; i < productIds.length; i++) {
+    var id = productIds[i];
+    var quantity = cart[id];
+    if (!catalog[id] || Math.floor(quantity) !== quantity || quantity < 1 || quantity > catalog[id].stock) {
+      event.preventDefault();
+      alert("Check product quantities against the available stock before completing the sale.");
+      return;
+    }
+  }
+  updateCheckoutButton();
+  var checkout = document.getElementById("checkout");
+  checkout.disabled = true;
+  checkout.textContent = "Completing sale...";
+});
+
+renderCart();
+</script>
+</body>
+</html>

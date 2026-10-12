@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Branches</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin:0; background:radial-gradient(ellipse at top left, rgba(37,99,235,.2), transparent 42%), linear-gradient(135deg,#0b1220 0%,#10233a 55%,#0f2f3b 100%); background-attachment:fixed; min-height:100vh; color:#e5e7eb; }
+    .topbar { padding:14px 18px; background:#0B3D6B; display:flex; align-items:center; justify-content:space-between; gap:12px; }
+    .brand { font-weight:800; }
+    .nav { display:flex; gap:14px; flex-wrap:wrap; justify-content:flex-end; }
+    .btn { display:inline-block; padding:10px 12px; border-radius:10px; background:#2C7BE5; color:#fff; font-weight:700; }
+    .btn-secondary { background:#5F0F40; }
+    a { color:#93c5fd; text-decoration:none; }
+    a:hover { text-decoration:underline; }
+    .wrap { padding:14px; max-width:1000px; margin:0 auto; }
+    .card { background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); border-radius:14px; padding:14px; margin-top:12px; }
+    h2 { margin:0 0 12px; font-size:16px; color:#fff; }
+    .field { margin:10px 0; }
+    label { display:block; font-size:13px; margin-bottom:6px; color:#dbeafe; }
+    input { width:100%; padding:10px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.08); color:#fff; }
+    button { width:100%; padding:12px; border:none; border-radius:10px; background:#2C7BE5; color:#fff; font-weight:800; cursor:pointer; }
+    .table { width:100%; border-collapse:collapse; margin-top:10px; }
+    .table th, .table td { padding:10px 8px; border-bottom:1px solid rgba(255,255,255,0.12); font-size:13px; }
+    .table th { text-align:left; color:#c7d2fe; }
+    .flash { padding:10px 12px; border-radius:10px; margin:10px 0; font-size:14px; }
+    .danger { background:#6B2737; border:1px solid rgba(255,255,255,0.15); }
+    .success { background:#1B4332; border:1px solid rgba(255,255,255,0.15); }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="brand">Branches</div>
+    <div class="nav">
+      <a class="btn" href="/dashboard">Dashboard</a>
+      <a class="btn btn-secondary" href="/stock/manage">Stock</a>
+      <form method="post" action="/logout" class="d-inline"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="btn btn-secondary" type="submit">Logout</button></form>
+    </div>
+  </div>
+
+  <div class="wrap">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="flash {{ 'danger' if category=='danger' else 'success' }}">{{ message }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    {% if is_admin %}
+      <div class="card">
+        <h2>Create Branch</h2>
+        <form method="POST" action="/branches">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <div class="field">
+            <label>Branch Name</label>
+            <input name="name" required>
+          </div>
+          <div class="field">
+            <label>District</label>
+            <input name="district" required>
+          </div>
+          <div class="field">
+            <label>Phone</label>
+            <input name="phone" required>
+          </div>
+          <button type="submit">Add Branch</button>
+        </form>
+      </div>
+    {% endif %}
+
+    <div class="card">
+      <h2>Branch List</h2>
+      <table class="table">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Branch</th>
+            <th>District</th>
+            <th>Phone</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% if branches %}
+            {% for b in branches %}
+              <tr>
+                <td>{{ b[0] }}</td>
+                <td>{{ b[2] }}</td>
+                <td>{{ b[3] }}</td>
+                <td>{{ b[4] }}</td>
+              </tr>
+            {% endfor %}
+          {% else %}
+            <tr><td colspan="4">No branches.</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</body>
+</html>

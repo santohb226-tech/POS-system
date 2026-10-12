@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sales Receipt #{{ order[0] }}</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin:0; background:radial-gradient(ellipse at top left, rgba(37,99,235,.2), transparent 42%), linear-gradient(135deg,#0b1220 0%,#10233a 55%,#0f2f3b 100%); background-attachment:fixed; min-height:100vh; color:#e5e7eb; }
+    .topbar { padding:14px 18px; background:#0B3D6B; display:flex; align-items:center; justify-content:space-between; gap:12px; }
+    .brand { font-weight:900; }
+    .nav { display:flex; gap:14px; flex-wrap:wrap; justify-content:flex-end; }
+    .btn { display:inline-block; padding:10px 12px; border-radius:10px; background:#2C7BE5; color:#fff; font-weight:700; }
+    .btn-secondary { background:#5F0F40; }
+    button { padding:10px 12px; border:none; border-radius:10px; background:#2C7BE5; color:#fff; font-weight:800; cursor:pointer; }
+    a { color:#93c5fd; text-decoration:none; }
+    a:hover { text-decoration:underline; }
+    .wrap { padding:14px; max-width:1100px; margin:0 auto; }
+    .card { background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); border-radius:14px; padding:14px; }
+    h2 { margin:0 0 12px; font-size:16px; color:#fff; }
+    .grid { display:block; }
+    .receipt-card { max-width:520px; margin:14px 0 0 auto; }
+    .kv { display:grid; grid-template-columns: 170px 1fr; gap:8px 12px; font-size:13px; }
+    .kv div:nth-child(odd){ color:#c7d2fe; }
+    table { width:100%; border-collapse:collapse; margin-top:10px; }
+    th, td { padding:10px 8px; border-bottom:1px solid rgba(255,255,255,0.12); font-size:13px; }
+    th { text-align:left; color:#c7d2fe; }
+    .right { text-align:right; }
+    .flash { padding:10px 12px; border-radius:10px; margin:10px 0; }
+    .danger { background:#6B2737; border:1px solid rgba(255,255,255,0.15); color:#fff; }
+    .success { background:#1B4332; border:1px solid rgba(255,255,255,0.15); color:#fff; }
+    .company-name { font-size:20px; font-weight:900; color:#fff; margin-bottom:12px; }
+    @media print {
+      body { margin:0; background:#fff; color:#000; }
+      .topbar { display:none; }
+      .wrap { max-width:none; padding:0; }
+      .grid { display:block; }
+      .card { background:#fff; border:0; border-radius:0; color:#000; padding:8px 0; }
+      h2, .kv div:nth-child(odd), th { color:#000; }
+      .company-name { color:#000; }
+      .no-print, .profit-column { display:none !important; }
+      table, th, td { border-color:#777; }
+      th, td { color:#000; }
+    }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="brand">Niyoo Farm Services — Sales Receipt</div>
+    <div class="nav">
+      <a class="btn" href="/pos">Back to POS</a>
+      {% if order[3] == 'FINALIZED' %}<button type="button" onclick="window.print()">Print Receipt</button>{% endif %}
+      <form method="post" action="/logout" class="d-inline"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="btn btn-secondary" type="submit">Logout</button></form>
+    </div>
+  </div>
+
+  <div class="wrap">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="flash {{ category }}">{{ message }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    <div class="grid">
+      <div class="card">
+        <h2>Invoice Lines</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Product</th>
+              <th class="right">Branch</th>
+              <th class="right">Qty</th>
+              <th class="right">Total</th>
+              <th class="right profit-column">Profit</th>
+              {% if is_owner and order[3] == 'FINALIZED' %}<th class="no-print">Owner Action</th>{% endif %}
+            </tr>
+          </thead>
+          <tbody>
+            {% if lines %}
+              {% for line in lines %}
+                <tr>
+                  <td>{{ line[1] if line|length>1 else '' }}</td>
+                  <td class="right">{{ line[6] if line|length>6 else '' }}</td>
+                  <td class="right">{{ line[2] }}</td>
+                  <td class="right">{{ line[3] }}</td>
+                  <td class="right profit-column">{{ line[4] }}</td>
+                  {% if is_owner and order[3] == 'FINALIZED' %}
+                  <td class="no-print">
+                    <form method="POST" action="/sales/{{ line[0] }}/delete" onsubmit="return confirm('Remove this sold item and restore its quantity to branch {{ line[6] }} stock?');">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                      <button type="submit">Remove &amp; Restore Stock</button>
+                    </form>
+                  </td>
+                  {% endif %}
+                </tr>
+              {% endfor %}
+            {% else %}
+              <tr><td colspan="{% if is_owner and order[3] == 'FINALIZED' %}6{% else %}5{% endif %}">No items.</td></tr>
+            {% endif %}
+          </tbody>
+        </table>
+
+        {% if order[3] == 'DRAFT' %}
+          <div style="margin-top:14px;">
+            <h2 style="margin:0 0 10px; font-size:15px;">Add Line to Draft</h2>
+            <form method="POST" action="/orders/{{ order[0] }}/lines">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <div class="field">
+                <label>Product</label>
+                <select name="product_id" required>
+                  <option value="">Select</option>
+                  {% for p in products %}
+                    <option value="{{ p[0] }}">{{ p[1] }} (Sell: {{ p[2] }})</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="field">
+                <label>Quantity</label>
+                <input type="number" name="quantity" min="1" value="1" required>
+              </div>
+              <button type="submit">Add Line</button>
+              <div class="muted" style="opacity:0.85; font-size:12px; margin-top:8px;">
+                Finalize to deduct stock.
+              </div>
+            </form>
+          </div>
+        {% endif %}
+      </div>
+
+      <div class="card receipt-card">
+        <div class="company-name">Niyoo Farm Services</div>
+        <h2>Sales Receipt</h2>
+        <div class="kv">
+          <div>Order ID</div><div>{{ order[0] }}</div>
+          <div>Sale Day</div><div>{{ order[2] }}</div>
+          <div>Status</div><div>{{ order[3] }}</div>
+          <div>Payment Status</div><div>{{ order[6] }}</div>
+          <div>Customer</div><div>{{ order[4] }}</div>
+          <div>Branch</div><div>{{ order[8] or order[7] or order[5] }}</div>
+          <div>Attendant</div><div>{{ order[9] or 'Not recorded' }}</div>
+        </div>
+
+        <div class="no-print" style="margin-top:12px; display:flex; gap:10px; flex-wrap:wrap;">
+          {% if order[3] == 'DRAFT' %}
+            <form method="POST" action="/orders/{{ order[0] }}/finalize" style="flex:1; min-width:220px;">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <button type="submit" style="width:100%;">Finalize & Deduct Stock</button>
+            </form>
+          {% endif %}
+
+          {% if order[3] == 'FINALIZED' and order[6] != 'PAID' %}
+            <form method="POST" action="/orders/{{ order[0] }}/paid" style="flex:1; min-width:220px;">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <button type="submit" style="width:100%;">Mark as Paid</button>
+            </form>
+          {% endif %}
+
+          <a class="btn btn-secondary" href="/orders/{{ order[0] }}">Refresh</a>
+        </div>
+
+        <div class="right" style="margin-top:12px; font-size:14px;">
+          <div class="muted" style="opacity:0.85;">Invoice Total</div>
+          <div style="font-weight:900; font-size:22px; color:#fff;">{{ invoice_total }}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

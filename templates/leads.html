@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Leads</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin:0; background:radial-gradient(ellipse at top left, rgba(37,99,235,.2), transparent 42%), linear-gradient(135deg,#0b1220 0%,#10233a 55%,#0f2f3b 100%); background-attachment:fixed; min-height:100vh; color:#e5e7eb; }
+    .topbar { padding:14px 18px; background:#0B3D6B; display:flex; align-items:center; justify-content:space-between; gap:12px; }
+    .brand { font-weight:900; }
+    .nav { display:flex; gap:14px; flex-wrap:wrap; justify-content:flex-end; }
+    .btn { display:inline-block; padding:10px 12px; border-radius:10px; background:#2C7BE5; color:#fff; font-weight:700; }
+    .btn-secondary { background:#5F0F40; }
+    a { color:#93c5fd; text-decoration:none; }
+    a:hover { text-decoration:underline; }
+    .wrap { padding:14px; max-width:1100px; margin:0 auto; }
+    .grid { display:grid; grid-template-columns: 1fr 1.2fr; gap:14px; }
+    @media (max-width: 900px){ .grid { grid-template-columns: 1fr; } }
+    .card { background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); border-radius:14px; padding:14px; }
+    h2 { margin:0 0 12px; font-size:16px; color:#fff; }
+    .field { margin:10px 0; }
+    label { display:block; font-size:13px; margin-bottom:6px; color:#dbeafe; }
+    input, select { width:100%; padding:10px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.08); color:#fff; }
+    select, select option { background-color:#fff; color:#111; }
+    button { width:100%; padding:12px; border:none; border-radius:10px; background:#2C7BE5; color:#fff; font-weight:900; cursor:pointer; }
+    table { width:100%; border-collapse:collapse; margin-top:10px; }
+    th, td { padding:10px 8px; border-bottom:1px solid rgba(255,255,255,0.12); font-size:13px; }
+    th { text-align:left; color:#c7d2fe; }
+    .row-actions { display:flex; gap:10px; flex-wrap:wrap; }
+    .chip { display:inline-block; padding:6px 10px; border-radius:999px; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.12); font-size:12px; }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="brand">Leads</div>
+    <div class="nav">
+      <a class="btn" href="/dashboard">Dashboard</a>
+      <a class="btn btn-secondary" href="/pos">POS</a>
+      <form method="post" action="/logout" class="d-inline"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="btn btn-secondary" type="submit">Logout</button></form>
+    </div>
+  </div>
+
+  <div class="wrap">
+    <div class="grid">
+      <div class="card">
+        <h2>Add Lead</h2>
+        <form method="POST" action="/leads">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="action" value="add_lead">
+
+          <div class="field">
+            <label>Lead Name</label>
+            <input name="lead_name" required>
+          </div>
+          <div class="field">
+            <label>Contact Name</label>
+            <input name="contact_name" placeholder="Optional">
+          </div>
+          <div class="field">
+            <label>Phone</label>
+            <input name="phone" required>
+          </div>
+          <div class="field">
+            <label>Source</label>
+            <input name="source" placeholder="e.g. Referral, Website, Walk-in">
+          </div>
+          <div class="field">
+            <label>Status</label>
+            <select name="status">
+              <option value="New" selected>New</option>
+              <option value="In Progress">In Progress</option>
+              <option value="Won">Won</option>
+              <option value="Lost">Lost</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Next Follow-up Date/Time (optional)</label>
+            <input name="next_follow_up_at" placeholder="YYYY-MM-DD HH:MM:SS">
+          </div>
+
+          <button type="submit">Add Lead</button>
+        </form>
+      </div>
+
+      <div class="card">
+        <h2>Leads List</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Lead</th>
+              <th>Phone</th>
+              <th>Source</th>
+              <th>Status</th>
+              <th class="right">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% if leads %}
+              {% for l in leads %}
+                <tr>
+                  <td>
+                    <div style="font-weight:800;">{{ l[1] }}</div>
+                    <div class="chip" style="margin-top:6px;">{{ l[9] }}</div>
+                  </td>
+                  <td>{{ l[3] }}</td>
+                  <td>{{ l[5] }}</td>
+                  <td>{{ l[6] }}</td>
+                  <td class="right">
+                    <div class="row-actions" style="justify-content:flex-end;">
+                      <a class="btn btn-secondary" href="/leads/{{ l[0] }}">Detail</a>
+                      <a class="btn" href="/leads/{{ l[0] }}/whatsapp" target="_blank" rel="noopener">WhatsApp</a>
+                    </div>
+
+                    <form method="POST" action="/leads/{{ l[0] }}/status" style="margin-top:8px; min-width:220px;">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                      <select name="status" style="width:180px; display:inline-block;" required>
+                        <option value="New">New</option>
+                        <option value="In Progress">In Progress</option>
+                        <option value="Won">Won</option>
+                        <option value="Lost">Lost</option>
+                      </select>
+                      <button type="submit" style="width:auto; padding:8px 10px; margin-left:8px;">Update</button>
+                    </form>
+                  </td>
+                </tr>
+              {% endfor %}
+            {% else %}
+              <tr><td colspan="5">No leads found.</td></tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
