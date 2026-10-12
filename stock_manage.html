@@ -83,13 +83,8 @@
 
           <div class="field">
             <label>Product</label>
-            <input name="product_name" list="stock-product-names" maxlength="150" placeholder="Type a product name" required>
-            <datalist id="stock-product-names">
-              {% for p in products %}
-                <option value="{{ p[1] }}">
-              {% endfor %}
-            </datalist>
-            <div class="subnote">Choose an existing product or type a new name. New products are created when stock is added.</div>
+            <input name="product_name" type="text" maxlength="150" placeholder="Enter any product name" autocomplete="off" required>
+            <div class="subnote">Enter any product name. If it is new, it will be created when stock is added.</div>
           </div>
 
           <div class="field">
