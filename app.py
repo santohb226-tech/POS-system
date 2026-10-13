@@ -1,4 +1,5 @@
 import json
+import math
 import os
 import secrets
 import sqlite3
@@ -131,6 +132,14 @@ def init_db():
         "CREATE TABLE IF NOT EXISTS products "
         "(id INTEGER PRIMARY KEY, name TEXT, category TEXT, unit TEXT, quantity INTEGER, buy_price REAL, sell_price REAL, business_type TEXT, owner TEXT, barcode TEXT)"
     )
+    if USE_POSTGRES:
+        exec_sql("ALTER TABLE products ADD COLUMN IF NOT EXISTS min_sell_price REAL")
+    else:
+        cur.execute("PRAGMA table_info(products)")
+        product_columns = [row[1] for row in cur.fetchall()]
+        if "min_sell_price" not in product_columns:
+            cur.execute("ALTER TABLE products ADD COLUMN min_sell_price REAL")
+    exec_sql("UPDATE products SET min_sell_price=sell_price WHERE min_sell_price IS NULL")
     exec_sql(
         "CREATE TABLE IF NOT EXISTS branch_stock "
         "(id SERIAL PRIMARY KEY, owner TEXT, business_type TEXT, branch_id INT, product_id INT, qty INT)"
@@ -851,7 +860,10 @@ def stock_manage():
             if action == "add" and (not product_name or len(product_name) > 150):
                 flash("Enter a product name of 1 to 150 characters", "danger")
                 return redirect("/stock/manage")
-            if action == "add" and (buy_price < 0 or sell_price < 0):
+            if action == "add" and (
+                not math.isfinite(buy_price) or not math.isfinite(sell_price)
+                or buy_price < 0 or sell_price < 0
+            ):
                 flash("Product prices must be zero or greater", "danger")
                 return redirect("/stock/manage")
             if qty < 0 or (action == "add" and qty == 0):
@@ -882,12 +894,12 @@ def stock_manage():
                         pid = product_row[0]
                     else:
                         insert_product_sql = (
-                            "INSERT INTO products(name,category,unit,quantity,buy_price,sell_price,business_type,owner,barcode) "
-                            "VALUES (?,?,?,?,?,?,?,?,?)"
+                            "INSERT INTO products(name,category,unit,quantity,buy_price,sell_price,business_type,owner,barcode,min_sell_price) "
+                            "VALUES (?,?,?,?,?,?,?,?,?,?)"
                         )
                         product_params = (
                             product_name, category, unit, 0, buy_price, sell_price,
-                            bt, owner, request.form.get("barcode", "").strip() or None
+                            bt, owner, request.form.get("barcode", "").strip() or None, sell_price
                         )
                         if USE_POSTGRES:
                             execute_stock_query(insert_product_sql + " RETURNING id", product_params)
@@ -1037,7 +1049,8 @@ def stock_manage():
     # - p[6] (sell_price)
     # - p[7] (barcode)
     products, _ = run_query(
-        "SELECT p.id, p.name, p.category, p.sell_price, p.unit, p.buy_price, p.sell_price, p.barcode "
+        "SELECT p.id, p.name, p.category, p.sell_price, p.unit, p.buy_price, p.sell_price, p.barcode, "
+        "COALESCE(p.min_sell_price,p.sell_price) "
         "FROM products p WHERE p.owner=? ORDER BY p.name",
         (owner,),
         fetch=True
@@ -1071,7 +1084,8 @@ def stock_manage():
         stock=stock,
         is_admin=is_admin(),
         is_owner=is_owner(),
-        my_branch=my_branch
+        my_branch=my_branch,
+        csrf_token=get_csrf_token()
     )
 
 
@@ -1234,9 +1248,19 @@ def point_of_sale():
                 quantity = int(item.get("quantity"))
                 if product_id <= 0 or quantity <= 0:
                     raise ValueError("Product quantities must be greater than zero")
-                quantities[product_id] = quantities.get(product_id, 0) + quantity
+                submitted_price = item.get("unit_price")
+                unit_price = None if submitted_price is None else float(submitted_price)
+                if unit_price is not None and (not math.isfinite(unit_price) or unit_price < 0):
+                    raise ValueError("Enter a valid unit price")
+                if product_id in quantities:
+                    existing_price = quantities[product_id][1]
+                    if existing_price != unit_price:
+                        raise ValueError("A product cannot have different prices in the same sale")
+                    quantities[product_id][0] += quantity
+                else:
+                    quantities[product_id] = [quantity, unit_price]
 
-            if any(quantity > 10000 for quantity in quantities.values()):
+            if any(quantity_and_price[0] > 10000 for quantity_and_price in quantities.values()):
                 raise ValueError("A product quantity is too large")
         except (json.JSONDecodeError, TypeError, ValueError) as exc:
             flash(str(exc) or "The cart is invalid", "danger")
@@ -1262,15 +1286,23 @@ def point_of_sale():
                 raise ValueError("Selected branch was not found")
 
             cart_lines = []
-            for product_id, quantity in quantities.items():
+            for product_id, (quantity, submitted_price) in quantities.items():
                 lock_clause = " FOR UPDATE" if USE_POSTGRES else ""
                 execute_sale_query(
-                    "SELECT name,buy_price,sell_price FROM products WHERE id=? AND owner=?" + lock_clause,
+                    "SELECT name,buy_price,sell_price,COALESCE(min_sell_price,sell_price) "
+                    "FROM products WHERE id=? AND owner=?" + lock_clause,
                     (product_id, owner)
                 )
                 product = cursor.fetchone()
                 if not product:
                     raise ValueError("A product in the cart was not found")
+                sell_price = float(product[2] or 0)
+                min_sell_price = float(product[3] if product[3] is not None else sell_price)
+                unit_price = sell_price if submitted_price is None else submitted_price
+                if unit_price < min_sell_price or unit_price > sell_price:
+                    raise ValueError(
+                        f"The price for {product[0]} must be between {min_sell_price:g} and {sell_price:g}"
+                    )
 
                 execute_sale_query(
                     "SELECT qty FROM branch_stock WHERE owner=? AND branch_id=? AND product_id=?" + lock_clause,
@@ -1283,7 +1315,7 @@ def point_of_sale():
 
                 cart_lines.append((
                     product_id, quantity, product[0], float(product[1] or 0),
-                    float(product[2] or 0), available
+                    unit_price, available
                 ))
 
             insert_sql = (
@@ -1357,7 +1389,8 @@ def point_of_sale():
         # billing.html uses p[3]=Price, p[4]=Available, p[5]=Barcode
         # so return: id,name,category,sell_price,available,barcode
         products, _ = run_query(
-            "SELECT p.id, p.name, p.category, p.sell_price, COALESCE(s.qty,0) AS available, p.barcode "
+            "SELECT p.id, p.name, p.category, p.sell_price, COALESCE(s.qty,0) AS available, p.barcode, "
+            "COALESCE(p.min_sell_price,p.sell_price) "
             "FROM products p "
             "LEFT JOIN branch_stock s "
             "ON s.product_id=p.id AND s.owner=p.owner AND s.branch_id=? "
@@ -1369,6 +1402,7 @@ def point_of_sale():
     else:
         products = []
 
+    products = [tuple(product) for product in products]
     return render_template("billing.html", branches=branches, products=products, selected_branch=selected_branch)
 
 
@@ -1490,7 +1524,12 @@ def order_detail(order_id):
         fetch=True
     )
 
-    products, _ = run_query("SELECT id,name,sell_price FROM products WHERE owner=? ORDER BY name", (owner,), fetch=True)
+    products, _ = run_query(
+        "SELECT id,name,sell_price,COALESCE(min_sell_price,sell_price) "
+        "FROM products WHERE owner=? ORDER BY name",
+        (owner,),
+        fetch=True
+    )
     invoice_total, _ = run_query("SELECT COALESCE(SUM(total),0) FROM sales WHERE order_id=? AND owner=?", (order_id, owner), fetch=True)
 
     return render_template(
@@ -1500,6 +1539,7 @@ def order_detail(order_id):
         products=products,
         invoice_total=invoice_total[0][0],
         is_owner=is_owner(),
+        is_admin=is_admin(),
         csrf_token=get_csrf_token()
     )
 
@@ -1523,18 +1563,31 @@ def order_add_line(order_id):
     try:
         pid = int(request.form["product_id"])
         qty = int(request.form["quantity"])
+        submitted_price = request.form.get("unit_price", "").strip()
+        unit_price = None if not submitted_price else float(submitted_price)
     except (KeyError, TypeError, ValueError):
-        flash("Choose a product and enter a valid quantity", "danger")
+        flash("Choose a product and enter valid quantity and price details", "danger")
         return redirect(f"/orders/{order_id}")
 
     if qty <= 0:
         flash("Quantity must be greater than zero", "danger")
         return redirect(f"/orders/{order_id}")
 
-    prod, _ = run_query("SELECT name, buy_price, sell_price FROM products WHERE id=? AND owner=?", (pid, owner), fetch=True)
+    prod, _ = run_query(
+        "SELECT name,buy_price,sell_price,COALESCE(min_sell_price,sell_price) "
+        "FROM products WHERE id=? AND owner=?",
+        (pid, owner),
+        fetch=True
+    )
     if prod:
-        total = qty * float(prod[0][2])
-        profit = qty * (float(prod[0][2]) - float(prod[0][1]))
+        sell_price = float(prod[0][2] or 0)
+        min_sell_price = float(prod[0][3] if prod[0][3] is not None else sell_price)
+        unit_price = sell_price if unit_price is None else unit_price
+        if not math.isfinite(unit_price) or unit_price < min_sell_price or unit_price > sell_price:
+            flash(f"Unit price must be between {min_sell_price:g} and {sell_price:g}", "danger")
+            return redirect(f"/orders/{order_id}")
+        total = qty * unit_price
+        profit = qty * (unit_price - float(prod[0][1] or 0))
         run_query(
             "INSERT INTO sales(product_id,product_name,quantity,total,profit,date,business_type,owner,order_id,branch_id) "
             "VALUES (?,?,?,?,?,?,?,?,?,?)",
@@ -1792,30 +1845,82 @@ def sales_report():
     )
 
 
+@app.route("/products/<int:product_id>/pricing", methods=["POST"])
+def update_product_pricing(product_id):
+    if not require_login():
+        return redirect("/")
+    if not is_admin():
+        flash("Only an administrator can set staff discount limits", "danger")
+        return redirect("/stock/manage")
+
+    owner, _ = get_session_owner_bt()
+    try:
+        min_sell_price = float(request.form.get("min_sell_price", ""))
+    except (TypeError, ValueError):
+        flash("Enter a valid minimum selling price", "danger")
+        return redirect("/stock/manage")
+    if not math.isfinite(min_sell_price) or min_sell_price < 0:
+        flash("Minimum selling price must be zero or greater", "danger")
+        return redirect("/stock/manage")
+
+    product, _ = run_query(
+        "SELECT sell_price FROM products WHERE id=? AND owner=?",
+        (product_id, owner),
+        fetch=True
+    )
+    if not product:
+        flash("Product was not found", "danger")
+        return redirect("/stock/manage")
+    sell_price = float(product[0][0] or 0)
+    if min_sell_price > sell_price:
+        flash("Minimum selling price cannot be higher than the regular selling price", "danger")
+        return redirect("/stock/manage")
+
+    run_query(
+        "UPDATE products SET min_sell_price=? WHERE id=? AND owner=?",
+        (min_sell_price, product_id, owner),
+        fetch=False
+    )
+    flash("Staff discount limit updated", "success")
+    return redirect("/stock/manage")
+
+
 @app.route("/products/add", methods=["POST"])
 def add_product():
     if not require_login():
         return redirect("/")
-    if not is_admin():
-        flash("Only admin can add products", "danger")
-        return redirect("/stock/manage")
 
     owner, bt = get_session_owner_bt()
+    name = request.form.get("name", "").strip()[:150]
+    category = request.form.get("category", "").strip()[:100]
+    try:
+        buy_price = float(request.form.get("buy_price", ""))
+        sell_price = float(request.form.get("sell_price", ""))
+    except (TypeError, ValueError):
+        flash("Enter valid buy and sell prices", "danger")
+        return redirect("/stock/manage")
+    if not name or not category or not math.isfinite(buy_price) or not math.isfinite(sell_price) or buy_price < 0 or sell_price < 0:
+        flash("Enter a product name, category, and valid non-negative prices", "danger")
+        return redirect("/stock/manage")
+
     run_query(
-        "INSERT INTO products(name,category,unit,quantity,buy_price,sell_price,business_type,owner,barcode) VALUES (?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO products(name,category,unit,quantity,buy_price,sell_price,business_type,owner,barcode,min_sell_price) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?)",
         (
-            request.form['name'],
-            request.form['category'],
+            name,
+            category,
             "Pcs",
             0,
-            int(request.form['buy_price']),
-            int(request.form['sell_price']),
+            buy_price,
+            sell_price,
             bt,
             owner,
-            request.form.get('barcode') or f"BC{int(datetime.now().timestamp())}"
+            request.form.get('barcode', '').strip() or f"BC{int(datetime.now().timestamp())}",
+            sell_price
         ),
         fetch=False
     )
+    flash("Product added. By default, staff cannot discount it until an admin sets a lower minimum price.", "success")
     return redirect("/stock/manage")
 
 
