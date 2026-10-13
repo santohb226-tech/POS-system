@@ -29,6 +29,10 @@
     .danger { background:#6B2737; border:1px solid rgba(255,255,255,0.15); color:#fff; }
     .success { background:#1B4332; border:1px solid rgba(255,255,255,0.15); color:#fff; }
     .company-name { font-size:20px; font-weight:900; color:#fff; margin-bottom:12px; }
+    .product-form { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:10px; align-items:end; }
+    .product-form label { display:block; margin-bottom:5px; font-size:13px; }
+    .product-form input { box-sizing:border-box; width:100%; padding:10px; border:1px solid rgba(255,255,255,0.2); border-radius:8px; background:#10233a; color:#fff; }
+    .product-form button { width:100%; }
     @media print {
       body { margin:0; background:#fff; color:#000; }
       .topbar { display:none; }
@@ -111,13 +115,18 @@
                 <select name="product_id" required>
                   <option value="">Select</option>
                   {% for p in products %}
-                    <option value="{{ p[0] }}">{{ p[1] }} (Sell: {{ p[2] }})</option>
+                    <option value="{{ p[0] }}" data-sell-price="{{ p[2] }}" data-min-price="{{ p[3] }}">{{ p[1] }} (Sell: {{ p[2] }}, minimum: {{ p[3] }})</option>
                   {% endfor %}
                 </select>
               </div>
               <div class="field">
                 <label>Quantity</label>
                 <input type="number" name="quantity" min="1" value="1" required>
+              </div>
+              <div class="field">
+                <label>Unit Price</label>
+                <input id="draft-unit-price" type="number" name="unit_price" min="0" step="0.01" value="0" required>
+                <div class="muted" style="opacity:0.85; font-size:12px; margin-top:8px;">Choose a product to see its allowed price range.</div>
               </div>
               <button type="submit">Add Line</button>
               <div class="muted" style="opacity:0.85; font-size:12px; margin-top:8px;">
@@ -126,6 +135,37 @@
             </form>
           </div>
         {% endif %}
+
+        <div class="no-print" style="margin-top:18px; padding-top:14px; border-top:1px solid rgba(255,255,255,0.12);">
+          <h2 style="margin:0 0 10px; font-size:15px;">Add New Product</h2>
+          <form method="POST" action="/products/add" class="product-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <div>
+              <label for="new-product-name">Product name</label>
+              <input id="new-product-name" name="name" placeholder="e.g. Incubator 528" required>
+            </div>
+            <div>
+              <label for="new-product-category">Category</label>
+              <input id="new-product-category" name="category" placeholder="Category" required>
+            </div>
+            <div>
+              <label for="new-product-buy-price">Buy price</label>
+              <input id="new-product-buy-price" name="buy_price" type="number" min="0" step="1" placeholder="Buy price" required>
+            </div>
+            <div>
+              <label for="new-product-sell-price">Sell price</label>
+              <input id="new-product-sell-price" name="sell_price" type="number" min="0" step="1" placeholder="Sell price" required>
+            </div>
+            <div>
+              <label for="new-product-barcode">Barcode (optional)</label>
+              <input id="new-product-barcode" name="barcode" placeholder="Type or scan barcode" autocomplete="off">
+            </div>
+            <button type="submit">Add Product</button>
+          </form>
+          <div class="muted" style="opacity:0.85; font-size:12px; margin-top:8px;">
+            Enter the barcode manually or focus the barcode field and scan it. Name, category, and prices are still required.
+          </div>
+        </div>
       </div>
 
       <div class="card receipt-card">
@@ -166,5 +206,25 @@
       </div>
     </div>
   </div>
+  {% if order[3] == 'DRAFT' %}
+  <script>
+    const draftProductSelect = document.querySelector('select[name="product_id"]');
+    const draftUnitPrice = document.getElementById("draft-unit-price");
+    draftProductSelect.addEventListener("change", function() {
+      const option = this.options[this.selectedIndex];
+      const sellPrice = option.getAttribute("data-sell-price");
+      const minPrice = option.getAttribute("data-min-price");
+      if (sellPrice === null || minPrice === null) {
+        draftUnitPrice.value = "";
+        draftUnitPrice.removeAttribute("max");
+        draftUnitPrice.min = "0";
+        return;
+      }
+      draftUnitPrice.min = minPrice;
+      draftUnitPrice.max = sellPrice;
+      draftUnitPrice.value = sellPrice;
+    });
+  </script>
+  {% endif %}
 </body>
 </html>

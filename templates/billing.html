@@ -34,6 +34,7 @@
             <strong>{{ product[1] }}</strong><small class="text-muted">{{ product[2] }}</small>
             <span class="mt-2">UGX {{ "%.0f"|format(product[3]) }}</span>
             <small class="{% if product[4] <= 0 %}text-danger{% else %}text-muted{% endif %}">Stock: {{ product[4] }}</small>
+            <small class="text-muted">Discount floor: UGX {{ "%.2f"|format(product[6]) }}</small>
             <div class="input-group input-group-sm mt-2">
               <input id="quantity-{{ product[0] }}" class="form-control" type="number" min="1" max="{{ product[4] }}" value="1" aria-label="Quantity of {{ product[1] }}" {% if product[4] <= 0 %}disabled{% endif %}>
               <button type="button" class="btn btn-success add-to-cart" data-product-id="{{ product[0] }}" onclick="window.addToCart(this.getAttribute('data-product-id'))" {% if product[4] <= 0 %}disabled{% endif %}>Add to cart</button>
@@ -75,7 +76,8 @@ for (var catalogIndex = 0; catalogIndex < productRows.length; catalogIndex++) {
     name: product[1],
     price: product[3],
     stock: product[4],
-    barcode: product[5]
+    barcode: product[5],
+    minPrice: product[6]
   };
 }
 var cart = {};
@@ -94,13 +96,14 @@ window.addToCart = function(id) {
     return;
   }
   var quantity = Number(quantityInput.value);
-  var alreadyAdded = cart[id] || 0;
+  var alreadyAdded = cart[id] ? cart[id].quantity : 0;
   if (quantityInput.value === "" || !isFinite(quantity) || Math.floor(quantity) !== quantity || quantity < 1 || alreadyAdded + quantity > item.stock) {
     error.textContent = "Enter a quantity from 1 to " + Math.max(0, item.stock - alreadyAdded) + ".";
     return;
   }
   error.textContent = "";
-  cart[id] = alreadyAdded + quantity;
+  if (!cart[id]) cart[id] = {quantity: 0, unitPrice: item.price};
+  cart[id].quantity = alreadyAdded + quantity;
   renderCart();
 };
 
@@ -119,33 +122,60 @@ function addScannedProduct(code) {
     alert("No product found for barcode: " + code);
     return false;
   }
-  var quantity = (cart[item.id] || 0) + 1;
+  var quantity = (cart[item.id] ? cart[item.id].quantity : 0) + 1;
   if (quantity > item.stock) {
-    alert("Only " + Math.max(0, item.stock - (cart[item.id] || 0)) + " more unit(s) of " + item.name + " are available.");
+    alert("Only " + Math.max(0, item.stock - (cart[item.id] ? cart[item.id].quantity : 0)) + " more unit(s) of " + item.name + " are available.");
     return false;
   }
-  cart[item.id] = quantity;
+  if (!cart[item.id]) cart[item.id] = {quantity: 0, unitPrice: item.price};
+  cart[item.id].quantity = quantity;
   renderCart();
   return true;
 }
 
 function changeQuantity(id, delta) {
   var item = catalog[id];
-  var quantity = (cart[id] || 0) + delta;
+  var quantity = (cart[id] ? cart[id].quantity : 0) + delta;
   if (quantity <= 0) delete cart[id];
-  else if (quantity <= item.stock) cart[id] = quantity;
+  else if (quantity <= item.stock) {
+    if (!cart[id]) cart[id] = {quantity: 0, unitPrice: item.price};
+    cart[id].quantity = quantity;
+  }
   updateCheckoutButton();
+  renderCart();
+}
+
+function changeUnitPrice(id, value) {
+  var item = catalog[id];
+  var unitPrice = Number(value);
+  if (!item) {
+    alert("This product is no longer available. Please refresh the page.");
+    return;
+  }
+  if (String(value).trim() === "" || !isFinite(unitPrice) || unitPrice < item.minPrice || unitPrice > item.price) {
+    alert("Enter a unit price from UGX " + item.minPrice + " to UGX " + item.price + ".");
+    renderCart();
+    return;
+  }
+  cart[id].unitPrice = unitPrice;
   renderCart();
 }
 
 function updateCheckoutButton() {
   var productIds = Object.keys(cart);
   var submittedCart = [];
+  var validCart = productIds.length > 0;
   for (var i = 0; i < productIds.length; i++) {
-    submittedCart.push({product_id: productIds[i], quantity: cart[productIds[i]]});
+    var id = productIds[i];
+    var item = catalog[id];
+    var line = cart[id];
+    if (!item || !isFinite(line.unitPrice) || line.unitPrice < item.minPrice || line.unitPrice > item.price) {
+      validCart = false;
+    }
+    submittedCart.push({product_id: id, quantity: line.quantity, unit_price: line.unitPrice});
   }
   document.getElementById("cart-data").value = JSON.stringify(submittedCart);
-  document.getElementById("checkout").disabled = false;
+  document.getElementById("checkout").disabled = !validCart;
 }
 
 function renderCart() {
@@ -161,13 +191,29 @@ function renderCart() {
   }
   for (var i = 0; i < productIds.length; i++) {
     var id = productIds[i];
-    var quantity = cart[id];
+    var quantity = cart[id].quantity;
+    var unitPrice = cart[id].unitPrice;
     var item = catalog[id];
-    total += item.price * quantity;
+    total += unitPrice * quantity;
     var row = document.createElement("div");
-    row.className = "d-flex justify-content-between align-items-center border-bottom py-2 gap-2";
+    row.className = "border-bottom py-2";
     var label = document.createElement("div");
-    label.textContent = item.name + " — " + money(item.price * quantity);
+    label.textContent = item.name + " — " + money(unitPrice * quantity);
+    var priceLabel = document.createElement("label");
+    priceLabel.className = "small text-muted mt-2";
+    priceLabel.textContent = "Unit price (UGX " + item.minPrice + "–" + item.price + ")";
+    var priceInput = document.createElement("input");
+    priceInput.type = "number";
+    priceInput.className = "form-control form-control-sm mt-1";
+    priceInput.min = item.minPrice;
+    priceInput.max = item.price;
+    priceInput.step = "0.01";
+    priceInput.value = unitPrice;
+    priceInput.setAttribute("data-product-id", id);
+    priceInput.setAttribute("aria-label", "Unit price for " + item.name);
+    priceInput.onchange = function() {
+      changeUnitPrice(this.getAttribute("data-product-id"), this.value);
+    };
     var controls = document.createElement("div");
     controls.className = "btn-group btn-group-sm";
     var actions = [["−", -1, "Remove one"], ["+", 1, "Add one"]];
@@ -193,6 +239,8 @@ function renderCart() {
     controls.insertBefore(count, controls.lastChild);
     row.appendChild(label);
     row.appendChild(controls);
+    priceLabel.appendChild(priceInput);
+    row.appendChild(priceLabel);
     container.appendChild(row);
   }
   document.getElementById("cart-total").textContent = money(total);
@@ -246,7 +294,7 @@ if (checkoutForm) checkoutForm.addEventListener("submit", function(event) {
   }
   for (var i = 0; i < productIds.length; i++) {
     var id = productIds[i];
-    var quantity = cart[id];
+    var quantity = cart[id].quantity;
     if (!catalog[id] || Math.floor(quantity) !== quantity || quantity < 1 || quantity > catalog[id].stock) {
       event.preventDefault();
       alert("Check product quantities against the available stock before completing the sale.");

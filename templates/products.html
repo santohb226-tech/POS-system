@@ -3,7 +3,7 @@
 <div class="container py-3"><div class="card p-3 mb-3"><h6>Add Product</h6><form method="post" action="/products/add" class="row g-2">
 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 <input name="name" class="form-control col" placeholder="e.g. Incubator 528" required>
-<select name="category" class="form-select col"><option>Incubators</option><option>Accessories</option><option>Chicks</option></select>
+<input name="category" class="form-control col" placeholder="Category" required>
 <input name="buy_price" type="number" class="form-control col" placeholder="Buy Price" required>
 <input name="sell_price" type="number" class="form-control col" placeholder="Sell Price" required>
 <button class="btn btn-dark col">Add</button></form></div></div></body></html>

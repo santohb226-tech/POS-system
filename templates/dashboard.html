@@ -6,6 +6,7 @@
   <meta name="theme-color" content="#0B3D6B">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Niyoo Farm">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <link rel="manifest" href="/static/manifest.webmanifest">
   <link rel="apple-touch-icon" href="/static/niyoo-icon-192.png">
   <title>Dashboard</title>
@@ -33,6 +34,7 @@
     .flash { padding:10px 12px; border-radius:10px; margin:10px 18px; background:#6B2737; border:1px solid rgba(255,255,255,0.15); color:#fff; display:none; }
     .alert-action { border:0; border-radius:10px; padding:10px 12px; background:#2C7BE5; color:#fff; font-weight:700; cursor:pointer; }
     .alert-action.secondary { background:#5F0F40; }
+    .install-action { margin-top:8px; }
   </style>
 </head>
 <body>
@@ -49,6 +51,11 @@
   </div>
 
   <div class="card-grid">
+    <div class="card span12">
+      <h3>Install Niyoo app</h3>
+      <p class="muted" id="install-status" aria-live="polite">Install the app on this device for quick access. Sign in with your saved account after installation.</p>
+      <button class="alert-action install-action" type="button" id="install-app">Install app</button>
+    </div>
     {% if is_admin %}
     <div class="card span12">
       <h3>Phone alerts</h3>
@@ -176,12 +183,6 @@
       return Uint8Array.from(raw, character => character.charCodeAt(0));
     }
 
-    if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("/service-worker.js").catch(error => {
-        setPushStatus("Could not prepare phone notifications: " + error.message);
-      });
-    }
-
     enablePush.addEventListener("click", async function() {
       if (!window.isSecureContext || !("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) {
         setPushStatus("Phone push alerts require HTTPS and a browser that supports notifications.");
@@ -252,5 +253,54 @@
     });
   </script>
   {% endif %}
+  <script>
+    let installPrompt = null;
+    const installButton = document.getElementById("install-app");
+    const installStatus = document.getElementById("install-status");
+    const isAppleMobile = /iPhone|iPad|iPod/.test(navigator.userAgent)
+      || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+    const isInstalled = window.matchMedia("(display-mode: standalone)").matches
+      || window.navigator.standalone === true;
+
+    if (isInstalled) {
+      installButton.hidden = true;
+      installStatus.textContent = "Niyoo is already installed on this device.";
+    } else if (isAppleMobile) {
+      installButton.textContent = "Show iPhone install steps";
+      installStatus.textContent = "To install on iPhone or iPad, open this page in Safari, tap Share, then choose Add to Home Screen.";
+    }
+
+    window.addEventListener("beforeinstallprompt", function(event) {
+      event.preventDefault();
+      installPrompt = event;
+    });
+
+    installButton.addEventListener("click", async function() {
+      if (isAppleMobile) {
+        installStatus.textContent = "In Safari, tap the Share button (the square with the up arrow), scroll down, tap Add to Home Screen, then tap Add.";
+        return;
+      }
+      if (!installPrompt) {
+        installStatus.textContent = "If installation does not start automatically, use your browser menu and choose Install app or Add to Home Screen. On iPhone or iPad, open this page in Safari and use Share → Add to Home Screen.";
+        return;
+      }
+      installPrompt.prompt();
+      const choice = await installPrompt.userChoice;
+      installStatus.textContent = choice.outcome === "accepted"
+        ? "Niyoo is being installed on this device."
+        : "Installation was cancelled. You can try again from this button.";
+      installPrompt = null;
+    });
+
+    window.addEventListener("appinstalled", function() {
+      installStatus.textContent = "Niyoo has been installed on this device.";
+    });
+
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/service-worker.js").catch(function(error) {
+        installStatus.textContent = "App installation setup failed: " + error.message;
+      });
+    }
+  </script>
 </body>
 </html>
